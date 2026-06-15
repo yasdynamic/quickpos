@@ -1,0 +1,64 @@
+{
+  "project_name": "QuickPOS",
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "emotional_tone": "Fast, Reliable, Frictionless, Clear",
+  "typography": {
+    "headings_font": "Manrope",
+    "body_font": "IBM Plex Sans",
+    "hierarchy": {
+      "h1": "text-4xl tracking-tight font-bold",
+      "h2": "text-2xl tracking-tight font-semibold",
+      "h3": "text-xl font-medium",
+      "body": "text-base md:text-lg leading-relaxed",
+      "labels": "text-sm uppercase tracking-[0.1em] font-semibold text-slate-500"
+    }
+  },
+  "colors": {
+    "background": "bg-[#FAFAFA]",
+    "surface": "bg-white",
+    "text_primary": "text-[#0A0A0A]",
+    "text_secondary": "text-[#4B5563]",
+    "primary": "bg-[#002FA7] text-white",
+    "primary_hover": "hover:bg-[#002277] hover:text-white",
+    "destructive": "bg-[#FF2A2A] text-white",
+    "destructive_hover": "hover:bg-[#CC0000] hover:text-white",
+    "border": "border-[#E5E7EB]",
+    "success": "bg-[#10B981] text-white"
+  },
+  "spacing_and_layout": {
+    "touch_targets": "Minimum h-14 or h-16 for all interactive elements. Add generous padding p-6 inside cards.",
+    "border_radius": "rounded-md (max 8px) for structural elements. Keep sharp, clean edges.",
+    "pos_layout": "Split view: Left pane (70% width) for categories/products grid. Right pane (30% width) for sticky cart/ticket. Use flex or grid layout.",
+    "dashboard_grid": "Control Room grid format: grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6. Every metric clearly defined."
+  },
+  "motion_and_interaction": {
+    "hover_states": "Crisp transition-transform active:scale-95 duration-100 ease-in-out for buttons (since touch is priority).",
+    "active_states": "High contrast focus rings: focus:ring-2 focus:ring-[#002FA7] focus:ring-offset-2",
+    "modals": "Use Shadcn Dialog. Ensure it opens full screen on mobile, and centered large modal on tablet/desktop."
+  },
+  "components": {
+    "buttons": "Large touch targets. Minimal gradients. Flat colors with subtle 1px border border-transparent.",
+    "product_card": "Flat card, border-border, aspect-square or slightly tall. Image/Icon top, text bottom. No heavy shadow, just shadow-sm or border.",
+    "cart_item": "Row layout. clear +/- touch controls on the right.",
+    "pin_pad": "3x4 grid of massive circular or square buttons (h-20 w-20) for rapid PIN entry."
+  },
+  "media": {
+    "icons": "lucide-react for system icons. Phosphor icons for diverse products if needed.",
+    "image_urls": {
+      "product_placeholder_burger": "https://images.unsplash.com/photo-1597368089905-5892b4a7ca49?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHw0fHxjb2ZmZWUlMjBidXJnZXIlMjBzaGlydCUyMHBsYW50JTIwcHJvZHVjdHxlbnwwfHx8fDE3ODE1NDgyNDh8MA&ixlib=rb-4.1.0&q=85",
+      "product_placeholder_drink": "https://images.unsplash.com/photo-1684569680389-286518f488cf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxjb2ZmZWUlMjBidXJnZXIlMjBzaGlydCUyMHBsYW50JTIwcHJvZHVjdHxlbnwwfHx8fDE3ODE1NDgyNDh8MA&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Prioritize iPad/Tablet layout: split screen for POS functionality. Use 70/30 or 60/40 width distribution.",
+    "Implement the PIN pad on the Auth screen using pure Tailwind grid.",
+    "Products need CRUD with stock and price. Use Shadcn tables for the admin views.",
+    "Checkout modal must offer Cash, Card, Mobile Money options prominently.",
+    "Dashboard must include Recharts (Bar/Line for sales over hours, Pie for categories).",
+    "Build a receipt preview view (modal) that visually mimics a thermal printed paper (monospace font, centered logo, dashed lines)."
+  ],
+  "accessibility": {
+    "data_testid": "MANDATORY. Add data-testid to every button, input, and critical data display."
+  }
+}
