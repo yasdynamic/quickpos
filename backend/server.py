@@ -184,9 +184,9 @@ async def get_categories_map() -> dict:
 @app.on_event("startup")
 async def seed_data() -> None:
     if await db.users.count_documents({}) == 0:
-        admin = User(name="Admin", pin="1234", role="admin")
+        admin = User(name="Admin", pin="000000", role="admin")
         await db.users.insert_one(admin.model_dump())
-        logger.info("Seeded default admin PIN=1234")
+        logger.info("Seeded default admin PIN=000000")
 
     if await db.categories.count_documents({}) == 0:
         cats = [

@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import {
   LayoutGrid,
   Package,
@@ -7,8 +8,10 @@ import {
   Mail,
   LogOut,
   Zap,
+  Lock,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import CloseDayModal from "@/components/CloseDayModal";
 
 const NAV = [
   { to: "/", label: "Caisse", icon: LayoutGrid, testid: "nav-pos" },
@@ -21,6 +24,7 @@ const NAV = [
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [closeOpen, setCloseOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -56,8 +60,17 @@ export default function AppShell({ children }) {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-[#E5E7EB] p-3">
-          <div className="hidden lg:flex flex-col mb-3 px-2">
+        <div className="border-t border-[#E5E7EB] p-3 space-y-2">
+          <button
+            data-testid="close-day-btn"
+            onClick={() => setCloseOpen(true)}
+            className="flex w-full items-center justify-center lg:justify-start gap-2 rounded-md bg-[#0A0A0A] px-3 py-3 text-sm font-bold uppercase tracking-wider text-white hover:bg-black active:scale-95 transition-transform"
+            title="Clôturer la journée"
+          >
+            <Lock className="h-4 w-4" />
+            <span className="hidden lg:inline">Clôturer la journée</span>
+          </button>
+          <div className="hidden lg:flex flex-col mb-1 px-2 pt-1">
             <span className="text-xs uppercase tracking-wider text-slate-500">
               Connecté
             </span>
@@ -76,6 +89,7 @@ export default function AppShell({ children }) {
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">{children}</main>
+      <CloseDayModal open={closeOpen} onClose={() => setCloseOpen(false)} />
     </div>
   );
 }
