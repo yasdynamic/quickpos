@@ -10,6 +10,7 @@ import {
   Banknote,
   Zap as Bolt,
   Settings as Cog,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -18,6 +19,7 @@ const NAV = [
   { to: "/vente-rapide", label: "Vente directe", icon: Bolt, testid: "nav-pos" },
   { to: "/session", label: "Caisse", icon: Banknote, testid: "nav-session" },
   { to: "/produits", label: "Produits", icon: Package, testid: "nav-products" },
+  { to: "/clients", label: "Clients", icon: Users, testid: "nav-customers" },
   { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard" },
   { to: "/historique", label: "Historique", icon: History, testid: "nav-history" },
   { to: "/rapports", label: "Rapports", icon: Mail, testid: "nav-reports" },

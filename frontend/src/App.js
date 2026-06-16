@@ -14,6 +14,7 @@ import HistoryPage from "@/pages/HistoryPage";
 import ReportsPage from "@/pages/ReportsPage";
 import SessionPage from "@/pages/SessionPage";
 import SettingsPage from "@/pages/SettingsPage";
+import CustomersPage from "@/pages/CustomersPage";
 import AppShell from "@/components/AppShell";
 
 const Protected = ({ children }) => {
@@ -41,6 +42,7 @@ function App() {
                 <Route path="/historique" element={<Protected><HistoryPage /></Protected>} />
                 <Route path="/rapports" element={<Protected><ReportsPage /></Protected>} />
                 <Route path="/parametres" element={<Protected><SettingsPage /></Protected>} />
+                <Route path="/clients" element={<Protected><CustomersPage /></Protected>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </BrowserRouter>

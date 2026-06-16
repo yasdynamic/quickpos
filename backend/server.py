@@ -263,6 +263,7 @@ class SaleCreate(BaseModel):
     amount_received: Optional[float] = None
     cashier_id: Optional[str] = None
     cashier_name: Optional[str] = None
+    customer_id: Optional[str] = None
 
 
 class Sale(BaseModel):
@@ -283,6 +284,7 @@ class Sale(BaseModel):
     table_name: Optional[str] = None
     order_id: Optional[str] = None
     session_id: Optional[str] = None
+    customer_id: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -855,8 +857,20 @@ async def pay_order(order_id: str, payload: OrderPay):
         table_name=order.get("table_name"),
         order_id=order["id"],
         session_id=session["id"] if session else order.get("session_id"),
+        customer_id=payload.customer_id,
     )
-    await db.sales.insert_one(sale.model_dump())
+    sale_doc = sale.model_dump()
+    await db.sales.insert_one(sale_doc)
+
+    from nf525_loyalty import append_journal as _aj, apply_loyalty_on_sale as _loy
+    await _aj("TICKET", sale.id, {
+        "ticket_number": sale.ticket_number,
+        "total": sale.total,
+        "payment_method": sale.payment_method,
+        "table": sale.table_name,
+        "items": [{"name": i.name, "qty": i.quantity, "price": i.price} for i in sale.items],
+    })
+    await _loy(sale_doc)
 
     order["status"] = "paid"
     order["paid_at"] = now_iso()
@@ -875,6 +889,8 @@ async def cancel_order(order_id: str):
     order["status"] = "cancelled"
     order["cancelled_at"] = now_iso()
     await _persist_order(order)
+    from nf525_loyalty import append_journal as _aj
+    await _aj("CANCEL", order["id"], {"reason": "manual"})
     return order
 
 
@@ -912,8 +928,19 @@ async def create_sale(payload: SaleCreate):
         server_id=payload.cashier_id,
         server_name=payload.cashier_name,
         session_id=session["id"] if session else None,
+        customer_id=payload.customer_id,
     )
-    await db.sales.insert_one(sale.model_dump())
+    sale_doc = sale.model_dump()
+    await db.sales.insert_one(sale_doc)
+    # NF525 immutable journal + Loyalty
+    from nf525_loyalty import append_journal as _aj, apply_loyalty_on_sale as _loy
+    await _aj("TICKET", sale.id, {
+        "ticket_number": sale.ticket_number,
+        "total": sale.total,
+        "payment_method": sale.payment_method,
+        "items": [{"name": i.name, "qty": i.quantity, "price": i.price} for i in sale.items],
+    })
+    await _loy(sale_doc)
     return sale
 
 
@@ -1025,6 +1052,14 @@ async def close_session(session_id: str, payload: CloseSessionRequest):
         "created_at": closed_at,
     }
     await db.reports.insert_one(z_report)
+    from nf525_loyalty import append_journal as _aj
+    await _aj("Z", session_id, {
+        "total_revenue": data["total_revenue"],
+        "num_sales": data["num_sales"],
+        "cash_difference": diff,
+        "expected_cash": expected,
+        "closing_cash_declared": payload.closing_cash_declared,
+    })
 
     return {
         "session": await db.cash_sessions.find_one({"id": session_id}, {"_id": 0}),
@@ -1458,6 +1493,11 @@ async def get_settings():
         "currency": currency,
         "report_recipients": (doc or {}).get("report_recipients") or [],
         "print": print_out,
+        "loyalty": (doc or {}).get("loyalty") or {
+            "enabled": False,
+            "points_per_currency": 1.0,
+            "points_redemption_rate": 100.0,
+        },
     }
 
 
@@ -1484,6 +1524,7 @@ class SettingsUpdate(BaseModel):
     smtp: Optional[SMTPConfigIn] = None
     report_recipients: Optional[List[EmailStr]] = None
     print: Optional[dict] = None
+    loyalty: Optional[dict] = None
 
 
 @api_router.put("/settings")
@@ -1515,6 +1556,12 @@ async def update_settings(payload: SettingsUpdate):
             "paper_width_mm": int(payload.print.get("paper_width_mm", 80)),
             "shop_name": str(payload.print.get("shop_name", "QuickPOS"))[:40],
             "footer_line": str(payload.print.get("footer_line", ""))[:80],
+        }
+    if payload.loyalty is not None:
+        update["loyalty"] = {
+            "enabled": bool(payload.loyalty.get("enabled", False)),
+            "points_per_currency": float(payload.loyalty.get("points_per_currency", 1.0)),
+            "points_redemption_rate": float(payload.loyalty.get("points_redemption_rate", 100.0)),
         }
     if not update:
         raise HTTPException(status_code=400, detail="Aucune modification fournie")
@@ -1551,6 +1598,14 @@ async def smtp_test(payload: SMTPTestRequest):
 async def root():
     return {"app": "QuickPOS", "status": "ok"}
 
+
+# --- NF525 + Loyalty extensions -----------------------------------------
+from nf525_loyalty import apply_loyalty_on_sale, append_journal  # noqa: E402
+import nf525_loyalty as _ext  # noqa: E402
+
+_ext.db = db
+_ext.api_router = api_router
+_ext.register_routes()
 
 app.include_router(api_router)
 
