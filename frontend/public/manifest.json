@@ -1,0 +1,17 @@
+{
+  "short_name": "QuickPOS",
+  "name": "QuickPOS · Caisse tactile",
+  "description": "POS web léger compatible imprimante thermique 80mm et tiroir-caisse",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#FAFAFA",
+  "theme_color": "#002FA7",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

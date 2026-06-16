@@ -5,9 +5,13 @@ import { api, formatCurrency } from "@/lib/api";
 import CheckoutModal from "@/components/CheckoutModal";
 import ReceiptModal from "@/components/ReceiptModal";
 import { useAuth } from "@/context/AuthContext";
+import { useSettings } from "@/context/SettingsContext";
+import { usePrinter } from "@/context/PrinterContext";
 
 export default function POSPage() {
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const printer = usePrinter();
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
   const [activeCat, setActiveCat] = useState("all");
@@ -99,6 +103,18 @@ export default function POSPage() {
       setCheckoutOpen(false);
       setReceiptOpen(true);
       toast.success(`Ticket #${res.data.ticket_number} encaissé`);
+
+      // Auto-print receipt + drawer on cash
+      if (printer.connected && settings?.print?.auto_print_receipt !== false) {
+        await printer.printReceipt(res.data);
+      }
+      if (
+        printer.connected &&
+        payment_method === "cash" &&
+        settings?.print?.open_drawer_on_cash !== false
+      ) {
+        await printer.openDrawer();
+      }
       // refresh stock view
       load();
     } catch (err) {

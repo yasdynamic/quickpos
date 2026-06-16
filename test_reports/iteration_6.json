@@ -1,0 +1,48 @@
+{
+  "summary": "Tested print settings persistence, PWA manifest, regression flows (login/session/cash payment) and frontend Impression tab. Found one CRITICAL backend bug: PUT/GET /api/settings silently drops 'auto_print_receipt' and 'open_drawer_on_cash' keys (backend code at server.py:1443-1514 only persists/returns auto_print_z, paper_width_mm, shop_name, footer_line). Frontend renders correctly, all testids present, disabled states correct when printer not connected, save toast OK, regression flows OK.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PUT /api/settings & GET /api/settings",
+        "issue": "Print keys 'auto_print_receipt' and 'open_drawer_on_cash' are not persisted by PUT and not returned by GET. Backend server.py update_settings() (lines 1508-1514) hard-codes only {auto_print_z, paper_width_mm, shop_name, footer_line} in the saved dict; get_settings() (lines 1443-1449) mirrors the same omission. Frontend sends them but they are silently dropped. Review request explicitly requires these keys.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Save print preferences (auto_print_receipt / open_drawer_on_cash)",
+        "issue": "UI shows toggles checked after save (because state stays in React state), but reloading would lose them because backend drops the keys. Caused by the backend bug above. Auto-print receipt + open-drawer behavior is therefore effectively non-persisted across reloads.",
+        "affected_selectors": ["[data-testid=\"auto-print-receipt\"]", "[data-testid=\"open-drawer-on-cash\"]", "[data-testid=\"save-print\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_print_settings.py",
+    "/app/test_reports/pytest/print_settings_results.xml"
+  ],
+  "action_items": [
+    "FIX backend server.py update_settings() to include 'auto_print_receipt' and 'open_drawer_on_cash' (bool) in the saved print dict.",
+    "FIX backend server.py get_settings() to return print.auto_print_receipt (default True) and print.open_drawer_on_cash (default True).",
+    "After fix, re-run /app/backend/tests/test_print_settings.py — expecting 7/7 pass."
+  ],
+  "critical_code_review_comments": [
+    "server.py update_settings (line 1508): the print payload validation is too narrow and discards keys not in the hard-coded list. Either accept the full dict from frontend or expand the allowed keys. Consider a Pydantic PrintConfig model for type-safety (analog to CurrencyConfig/SMTPConfigIn).",
+    "PrintSection.jsx uses `form.auto_print_receipt ?? true` which masks the bug visually because the toggle defaults to true even when backend returns nothing. Once backend is fixed, the value will be authoritative.",
+    "PrinterContext / OrderPage / POSPage / SessionPage should respect open_drawer_on_cash and auto_print_receipt flags from settings (out of scope for this test, but worth verifying once backend persists them)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_print_settings.py (new test file)"
+  ],
+  "success_rate": {"backend": "71% (5/7 pytest, manifest+defaults+58mm+login+cashflow PASS, auto_print_receipt+open_drawer persistence FAIL)", "frontend": "100% (all 12 testids render, disabled states correct, save toast OK, regression tabs OK)"},
+  "test_credentials": "Admin PIN 000000",
+  "seed_data_creation": "None. Test fixture restores baseline print settings via PUT after run.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend bug confirmed via test_print_settings.py: 2/7 tests fail (test_get_settings_has_auto_print_receipt_and_drawer, test_put_settings_persists_receipt_and_drawer). Fix is small (server.py lines 1443-1449 + 1508-1514). After fix, also worth verifying via Playwright that toggling auto-print-receipt OFF, saving, then reloading the page keeps the toggle OFF. Regression flows (login 000000, table order create+pay cash, session open/close) are all green and should remain green after fix. WebUSB IS available in this Playwright Chromium build (connect-printer not disabled), so the 'WebUSB non disponible' branch was not exercised — but the code path is straightforward (else branch in PrintSection.jsx lines 70-77).",
+  "rca of the issue": "RCA: server.py update_settings() at line 1508 builds the persisted print dict with a hard-coded key list that omits auto_print_receipt and open_drawer_on_cash. get_settings() at line 1443 mirrors the same omission. Reproduction: PUT /api/settings with {\"print\":{\"auto_print_receipt\":true,\"open_drawer_on_cash\":true}} then GET /api/settings -> print object only contains {auto_print_z, paper_width_mm, shop_name, footer_line}. Mitigation: extend both functions to handle these two boolean keys with defaults True, OR replace the dict construction with a Pydantic PrintConfig model mirrored on both read and write."
+}

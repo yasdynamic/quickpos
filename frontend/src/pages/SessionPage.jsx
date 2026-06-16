@@ -4,14 +4,15 @@ import { Lock, Mail, AlertTriangle, CheckCircle2, Banknote, FileText, Printer } 
 import { toast } from "sonner";
 import { api, formatCurrency, formatDateTime } from "@/lib/api";
 import { useSettings } from "@/context/SettingsContext";
+import { usePrinter } from "@/context/PrinterContext";
 import OpenSessionModal from "@/components/OpenSessionModal";
-import PrintableJournal from "@/components/PrintableJournal";
 
 const PAYMENT_LABEL = { cash: "Espèces", card: "Carte", mobile: "Mobile Money" };
 
 export default function SessionPage() {
   const navigate = useNavigate();
   const { settings: appSettings } = useSettings();
+  const printer = usePrinter();
   const [session, setSession] = useState(null);
   const [xData, setXData] = useState(null);
   const [history, setHistory] = useState([]);
@@ -69,10 +70,13 @@ export default function SessionPage() {
         toast.warning("Session fermée. Email non envoyé (configuration manquante).");
       }
       load();
-      // Auto-print thermal journal
-      if (appSettings?.print?.auto_print_z) {
-        // give the DOM a tick to render the printable component
-        setTimeout(() => window.print(), 400);
+      // Auto-print Z journal directly to USB thermal printer
+      if (appSettings?.print?.auto_print_z !== false) {
+        if (printer.connected) {
+          await printer.printZ(res.data.report, salesForPrint);
+        } else {
+          toast.warning("Imprimante non connectée — journal Z non imprimé.");
+        }
       }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
@@ -81,8 +85,12 @@ export default function SessionPage() {
     }
   };
 
-  const reprint = () => {
-    setTimeout(() => window.print(), 100);
+  const reprint = async () => {
+    if (printer.connected && result) {
+      await printer.printZ(result.report, printSales);
+    } else {
+      toast.error("Imprimante non connectée");
+    }
   };
 
   return (
@@ -292,14 +300,7 @@ export default function SessionPage() {
         </div>
       )}
 
-      {/* Printable Z journal — hidden on screen, visible during window.print() */}
-      {result && (
-        <PrintableJournal
-          shopName={appSettings?.print?.shop_name}
-          sessionData={result.report}
-          sales={printSales}
-        />
-      )}
+      {/* PrintableJournal removed — USB direct printing via PrinterContext */}
 
       <section className="mt-8 rounded-md border border-[#E5E7EB] bg-white p-6">
         <div className="flex items-center justify-between mb-4">

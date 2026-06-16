@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ChefHat, Minus, Plus, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
+import { useSettings } from "@/context/SettingsContext";
+import { usePrinter } from "@/context/PrinterContext";
 import CheckoutModal from "@/components/CheckoutModal";
 import ReceiptModal from "@/components/ReceiptModal";
 import ModifierModal from "@/components/ModifierModal";
@@ -10,6 +12,8 @@ import ModifierModal from "@/components/ModifierModal";
 export default function OrderPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
+  const { settings } = useSettings();
+  const printer = usePrinter();
   const [order, setOrder] = useState(null);
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
@@ -110,10 +114,24 @@ export default function OrderPage() {
         payment_method,
         amount_received,
       });
-      setLastSale(res.data.sale);
+      const sale = res.data.sale;
+      setLastSale(sale);
       setCheckoutOpen(false);
       setReceiptOpen(true);
-      toast.success(`Ticket #${res.data.sale.ticket_number} encaissé`);
+      toast.success(`Ticket #${sale.ticket_number} encaissé`);
+
+      // Auto-print receipt
+      if (printer.connected && settings?.print?.auto_print_receipt !== false) {
+        await printer.printReceipt(sale);
+      }
+      // Open drawer on cash
+      if (
+        printer.connected &&
+        payment_method === "cash" &&
+        settings?.print?.open_drawer_on_cash !== false
+      ) {
+        await printer.openDrawer();
+      }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     }
