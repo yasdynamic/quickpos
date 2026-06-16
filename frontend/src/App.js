@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { SettingsProvider } from "@/context/SettingsContext";
 import { PrinterProvider } from "@/context/PrinterContext";
 import LoginPage from "@/pages/LoginPage";
+import CaisseHubPage from "@/pages/CaisseHubPage";
 import TablesPage from "@/pages/TablesPage";
 import OrderPage from "@/pages/OrderPage";
 import POSPage from "@/pages/POSPage";
@@ -16,6 +17,7 @@ import SessionPage from "@/pages/SessionPage";
 import SettingsPage from "@/pages/SettingsPage";
 import CustomersPage from "@/pages/CustomersPage";
 import AppShell from "@/components/AppShell";
+import SessionGuard from "@/components/SessionGuard";
 
 const Protected = ({ children }) => {
   const { user, hydrated } = useAuth();
@@ -33,9 +35,10 @@ function App() {
             <BrowserRouter>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
-                <Route path="/" element={<Protected><TablesPage /></Protected>} />
-                <Route path="/commande/:orderId" element={<Protected><OrderPage /></Protected>} />
-                <Route path="/vente-rapide" element={<Protected><POSPage /></Protected>} />
+                <Route path="/" element={<Protected><CaisseHubPage /></Protected>} />
+                <Route path="/tables" element={<Protected><SessionGuard><TablesPage /></SessionGuard></Protected>} />
+                <Route path="/commande/:orderId" element={<Protected><SessionGuard><OrderPage /></SessionGuard></Protected>} />
+                <Route path="/vente-rapide" element={<Protected><SessionGuard><POSPage /></SessionGuard></Protected>} />
                 <Route path="/session" element={<Protected><SessionPage /></Protected>} />
                 <Route path="/produits" element={<Protected><ProductsPage /></Protected>} />
                 <Route path="/dashboard" element={<Protected><DashboardPage /></Protected>} />

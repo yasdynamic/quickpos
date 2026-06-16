@@ -1086,7 +1086,7 @@ async def _require_open_session_or_400() -> dict:
 
 
 @api_router.post("/cash-sessions/{session_id}/reopen")
-async def reopen_session(session_id: str, user=Depends(require_role("manager"))):
+async def reopen_session(session_id: str, user: Optional[dict] = Depends(current_user)):
     s = await db.cash_sessions.find_one({"id": session_id}, {"_id": 0})
     if not s:
         raise HTTPException(404, "Session introuvable")
@@ -1109,7 +1109,7 @@ async def reopen_session(session_id: str, user=Depends(require_role("manager")))
         {"$set": {"status": "open"}, "$unset": {"closed_at": "", "closing_cash_declared": "", "expected_cash": "", "cash_difference": ""}},
     )
     from nf525_loyalty import append_journal as _aj
-    await _aj("PARAM", session_id, {"action": "reopen_session", "by": user.get("name")})
+    await _aj("PARAM", session_id, {"action": "reopen_session", "by": (user or {}).get("name", "?")})
     return await db.cash_sessions.find_one({"id": session_id}, {"_id": 0})
 
 

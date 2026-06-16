@@ -292,7 +292,7 @@ export default function SessionPage() {
                   onClick={() => navigate("/")}
                   className="rounded-md border border-emerald-300 bg-white px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-emerald-900 hover:bg-emerald-50"
                 >
-                  Retour au plan de salle
+                  Retour au Hub
                 </button>
               </div>
             </section>

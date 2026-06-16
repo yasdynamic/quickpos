@@ -8,16 +8,16 @@ import {
   LogOut,
   Zap,
   Banknote,
-  Zap as Bolt,
+  Home,
   Settings as Cog,
   Users,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 const NAV = [
-  { to: "/", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables", roles: ["server", "manager", "admin"] },
-  { to: "/vente-rapide", label: "Vente directe", icon: Bolt, testid: "nav-pos", roles: ["server", "manager", "admin"] },
-  { to: "/session", label: "Caisse", icon: Banknote, testid: "nav-session", roles: ["server", "manager", "admin"] },
+  { to: "/", label: "Caisse", icon: Home, testid: "nav-hub", roles: ["server", "manager", "admin"] },
+  { to: "/tables", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables", roles: ["server", "manager", "admin"] },
+  { to: "/session", label: "Sessions", icon: Banknote, testid: "nav-session", roles: ["server", "manager", "admin"] },
   { to: "/produits", label: "Produits", icon: Package, testid: "nav-products", roles: ["manager", "admin"] },
   { to: "/clients", label: "Clients", icon: Users, testid: "nav-customers", roles: ["server", "manager", "admin"] },
   { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard", roles: ["manager", "admin"] },

@@ -109,7 +109,7 @@ export default function OrderPage() {
     if (!window.confirm("Annuler cette commande ?")) return;
     await api.post(`/orders/${orderId}/cancel`);
     toast.success("Commande annulée");
-    navigate("/");
+    navigate("/tables");
   };
 
   const canDiscount = ["admin", "manager"].includes(user?.role);
@@ -171,7 +171,7 @@ export default function OrderPage() {
             data-testid="order-back"
             onClick={() => {
               if (receiptOpen) return;
-              navigate("/");
+              navigate("/tables");
             }}
             className="flex h-10 w-10 items-center justify-center rounded-md border border-[#E5E7EB] hover:bg-[#FAFAFA] active:scale-95"
           >
@@ -482,7 +482,7 @@ export default function OrderPage() {
         open={receiptOpen}
         onClose={() => {
           setReceiptOpen(false);
-          navigate("/");
+          navigate("/tables");
         }}
         sale={lastSale}
       />

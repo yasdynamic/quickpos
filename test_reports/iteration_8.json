@@ -1,0 +1,25 @@
+{
+  "summary": "Tested the Caisse Hub iteration end-to-end (backend + frontend). Backend: 8/8 pytest tests pass — sales/order pay blocked without session, reopen permission now allowed for server role (Sophie 1111), reopen blocked on non-closed session or when another session open, hub data endpoints OK. Frontend: PIN login lands on Hub with 'Bonjour Admin' h1, the 4 hub buttons present with correct testids and disabled when no session; clicking a disabled hub button is rejected; SessionGuard redirects /tables and /vente-rapide to / when no session; reopen-day works and enables the 4 buttons which navigate correctly (Vente directe -> /vente-rapide, Ventes en attente -> /tables, Bande de contrôle -> /session?view=x, Clôture -> /session?view=z); nav-hub returns to Hub; old nav-pos link removed; pending sales orange badge displays exact open-orders count (6 == 6 open orders).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_caisse_hub.py",
+    "/app/test_reports/pytest/caisse_hub_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CaisseHubPage uses string slice comparison on closed_at (s.closed_at.slice(0,10) === today). This is timezone-naive: closed_at is stored in UTC ISO so a session closed late evening local time may show as next-day UTC and not appear as reopenable on the actual same local day (or vice-versa). Consider comparing with local-day on the backend or returning closed_day in user's tz.",
+    "Backend reopen_session uses datetime.now(timezone.utc).date() vs closed_at.date() — same UTC vs local timezone caveat as above; if the deployment runs in a non-UTC region the 'same calendar day' check can flip at midnight UTC, not at local midnight. Document expected timezone or use settings.timezone.",
+    "SessionGuard fires toast.warning() during render before returning <Navigate/>. In React 18 strict-mode dev it may double-fire the toast (minor UX, not a bug).",
+    "POST /api/sales accepts both 'qty' and 'quantity' depending on item schema — the API rejected qty-only payload with 422 in tests; harmonising the field name reduces consumer confusion."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_caisse_hub.py (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all scenarios)"},
+  "test_credentials": "Admin PIN 000000, Sophie PIN 1111, Marc PIN 2222",
+  "seed_data_creation": "Tests create and clean up TEST cash-sessions via /api/cash-sessions/open and /close; one order created during session-enforcement test (left as paid only if the open-pay flow succeeded — currently still open since pay was rejected without session as expected).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend login returns the user object directly (not {token, user}). Use X-User-Id header for auth context (current_user dependency). Sales POST requires 'quantity' field on items (not just 'qty'). The reopen permission has been relaxed: any authenticated role can call POST /api/cash-sessions/{id}/reopen — guarded only by same UTC calendar day and absence of another open session. Hub uses testids hub-direct-sale/hub-pending-sales/hub-control-tape/hub-close-day, plus hub-open-session-btn, hub-reopen-day-btn, hub-session-open. AppShell exposes nav-hub and nav-tables; nav-pos is removed."
+}
