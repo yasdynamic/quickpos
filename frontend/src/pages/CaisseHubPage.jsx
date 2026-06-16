@@ -9,6 +9,10 @@ import {
   Unlock,
   RotateCcw,
   AlertTriangle,
+  TrendingUp,
+  Receipt,
+  ShoppingBag,
+  Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency, formatDateTime } from "@/lib/api";
@@ -23,20 +27,23 @@ export default function CaisseHubPage() {
   const [session, setSession] = useState(null);
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
   const [showOpen, setShowOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reopening, setReopening] = useState(false);
 
   const load = async () => {
     try {
-      const [s, h, o] = await Promise.all([
+      const [s, h, o, d] = await Promise.all([
         api.get("/cash-sessions/current"),
         api.get("/cash-sessions", { params: { limit: 10 } }),
         api.get("/orders", { params: { status: "open" } }),
+        api.get("/dashboard"),
       ]);
       setSession(s.data || null);
       setHistory(h.data || []);
       setOpenOrders(o.data || []);
+      setDashboard(d.data || null);
     } finally {
       setLoading(false);
     }
@@ -44,6 +51,8 @@ export default function CaisseHubPage() {
 
   useEffect(() => {
     load();
+    const id = setInterval(load, 30000); // auto-refresh every 30s
+    return () => clearInterval(id);
   }, []);
 
   // A closed session of the SAME calendar day → eligible to reopen
@@ -148,6 +157,8 @@ export default function CaisseHubPage() {
           </div>
         </div>
       )}
+
+      {dashboard && <LiveDashboard data={dashboard} />}
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
         <HubAction
@@ -367,5 +378,116 @@ function HubAction({ testid, title, subtitle, color, icon: Icon, onClick, disabl
         </span>
       )}
     </button>
+  );
+}
+
+
+function LiveDashboard({ data }) {
+  const top = (data.top_products || []).slice(0, 3);
+  return (
+    <section
+      data-testid="hub-live-dashboard"
+      className="mb-6 rounded-lg border border-[#E5E7EB] bg-white overflow-hidden"
+    >
+      <div className="flex items-center justify-between border-b border-[#E5E7EB] bg-gradient-to-r from-[#002FA7] to-[#0048D8] px-5 py-3">
+        <div className="flex items-center gap-2 text-white">
+          <TrendingUp className="h-4 w-4" />
+          <span className="text-xs uppercase tracking-[0.15em] font-bold">
+            Performances en direct · {(data.date || "").split("-").reverse().join("/")}
+          </span>
+        </div>
+        <span
+          data-testid="hub-live-pulse"
+          className="flex items-center gap-2 text-xs text-white/80"
+          title="Mise à jour automatique toutes les 30 s"
+        >
+          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+          Live
+        </span>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-[#E5E7EB]">
+        <StatCell
+          testid="stat-revenue"
+          label="Chiffre d'affaires"
+          value={formatCurrency(data.total_revenue || 0)}
+          icon={TrendingUp}
+          color="#002FA7"
+        />
+        <StatCell
+          testid="stat-sales"
+          label="Ventes"
+          value={data.num_sales || 0}
+          icon={Receipt}
+          color="#10B981"
+        />
+        <StatCell
+          testid="stat-avg-ticket"
+          label="Panier moyen"
+          value={formatCurrency(data.avg_ticket || 0)}
+          icon={ShoppingBag}
+          color="#F97316"
+        />
+        <StatCell
+          testid="stat-top-product"
+          label="Top produit"
+          value={top[0]?.name || "—"}
+          subvalue={top[0] ? `${top[0].qty} · ${formatCurrency(top[0].revenue)}` : null}
+          icon={Trophy}
+          color="#EC4899"
+        />
+      </div>
+      {top.length > 0 && (
+        <div className="border-t border-[#E5E7EB] bg-[#FAFAFA] px-5 py-3">
+          <p className="text-[10px] uppercase tracking-[0.12em] font-bold text-slate-500 mb-2">
+            Top 3 du jour
+          </p>
+          <ol className="space-y-1.5" data-testid="hub-top-products">
+            {top.map((p, i) => (
+              <li
+                key={p.name + i}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                    style={{ backgroundColor: ["#EC4899", "#F97316", "#0EA5E9"][i] }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="truncate font-medium">{p.name}</span>
+                </span>
+                <span className="font-mono text-xs text-slate-600 shrink-0">
+                  {p.qty} · {formatCurrency(p.revenue)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StatCell({ testid, label, value, subvalue, icon: Icon, color }) {
+  return (
+    <div className="flex items-center gap-3 px-5 py-4" data-testid={testid}>
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-white"
+        style={{ backgroundColor: color }}
+      >
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-[0.12em] font-bold text-slate-500">
+          {label}
+        </p>
+        <p className="text-lg font-bold font-mono truncate" title={String(value)}>
+          {value}
+        </p>
+        {subvalue && (
+          <p className="text-[11px] text-slate-500 truncate">{subvalue}</p>
+        )}
+      </div>
+    </div>
   );
 }
