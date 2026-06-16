@@ -252,6 +252,7 @@ class OrderCreate(BaseModel):
     table_id: Optional[str] = None
     server_id: Optional[str] = None
     covers: int = 1
+    label: Optional[str] = None  # for counter holds (no table)
 
 
 class OrderPay(BaseModel):
@@ -748,6 +749,7 @@ async def get_order(order_id: str):
 
 @api_router.post("/orders")
 async def create_order(payload: OrderCreate):
+    await _require_open_session_or_400()
     server = None
     if payload.server_id:
         server = await db.users.find_one({"id": payload.server_id}, {"_id": 0, "pin": 0})
@@ -764,6 +766,9 @@ async def create_order(payload: OrderCreate):
         if not table:
             raise HTTPException(status_code=404, detail="Table introuvable")
         table_name = table["name"]
+    elif payload.label:
+        # Counter hold: free-form label
+        table_name = payload.label.strip()[:60] or None
 
     session = await get_current_session()
 

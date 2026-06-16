@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Minus, Plus, Trash2, Receipt as ReceiptIcon, Search } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Minus, Plus, Trash2, Receipt as ReceiptIcon, Search, PauseCircle, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
 import CheckoutModal from "@/components/CheckoutModal";
@@ -12,6 +13,7 @@ export default function POSPage() {
   const { user } = useAuth();
   const { settings } = useSettings();
   const printer = usePrinter();
+  const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
   const [activeCat, setActiveCat] = useState("all");
@@ -20,6 +22,9 @@ export default function POSPage() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [lastSale, setLastSale] = useState(null);
   const [receiptOpen, setReceiptOpen] = useState(false);
+  const [holdOpen, setHoldOpen] = useState(false);
+  const [holdLabel, setHoldLabel] = useState("");
+  const [holding, setHolding] = useState(false);
 
   const load = async () => {
     const [c, p] = await Promise.all([
@@ -119,6 +124,37 @@ export default function POSPage() {
       load();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur d'encaissement");
+    }
+  };
+
+  const holdSale = async () => {
+    if (cart.length === 0) return;
+    setHolding(true);
+    try {
+      const orderRes = await api.post("/orders", {
+        server_id: user?.id,
+        label: holdLabel.trim() || undefined,
+      });
+      const orderId = orderRes.data.id;
+      // Add cart items sequentially (each may have product look-up etc.)
+      for (const line of cart) {
+        await api.post(`/orders/${orderId}/items`, {
+          product_id: line.product_id,
+          quantity: line.quantity,
+        });
+      }
+      toast.success(
+        holdLabel.trim()
+          ? `Vente mise en attente : ${holdLabel.trim()}`
+          : "Vente mise en attente",
+      );
+      setCart([]);
+      setHoldLabel("");
+      setHoldOpen(false);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Mise en attente impossible");
+    } finally {
+      setHolding(false);
     }
   };
 
@@ -298,14 +334,25 @@ export default function POSPage() {
               {formatCurrency(totals.subtotal)}
             </span>
           </div>
-          <button
-            data-testid="checkout-btn"
-            disabled={cart.length === 0}
-            onClick={() => setCheckoutOpen(true)}
-            className="h-16 w-full rounded-md bg-[#002FA7] text-lg font-bold uppercase tracking-wider text-white hover:bg-[#002277] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Encaisser
-          </button>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              data-testid="hold-btn"
+              disabled={cart.length === 0}
+              onClick={() => setHoldOpen(true)}
+              className="col-span-1 flex h-16 items-center justify-center gap-1 rounded-md border-2 border-[#F97316] bg-white text-sm font-bold uppercase tracking-wider text-[#F97316] hover:bg-orange-50 active:scale-[0.98] transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <PauseCircle className="h-5 w-5" />
+              Attente
+            </button>
+            <button
+              data-testid="checkout-btn"
+              disabled={cart.length === 0}
+              onClick={() => setCheckoutOpen(true)}
+              className="col-span-2 h-16 rounded-md bg-[#002FA7] text-lg font-bold uppercase tracking-wider text-white hover:bg-[#002277] active:scale-[0.98] transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Encaisser
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -320,6 +367,93 @@ export default function POSPage() {
         onClose={() => setReceiptOpen(false)}
         sale={lastSale}
       />
+
+      {holdOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          data-testid="hold-modal"
+        >
+          <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+            <header className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#F97316] text-white">
+                  <PauseCircle className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.1em] font-semibold text-slate-500">
+                    Comptoir
+                  </p>
+                  <h2 className="text-xl font-bold">Mettre la vente en attente</h2>
+                </div>
+              </div>
+              <button
+                onClick={() => setHoldOpen(false)}
+                className="flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] hover:bg-[#FAFAFA]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+            <div className="space-y-4 p-6">
+              <div>
+                <label htmlFor="hold-label" className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+                  Libellé (optionnel)
+                </label>
+                <input
+                  id="hold-label"
+                  data-testid="hold-label-input"
+                  autoFocus
+                  value={holdLabel}
+                  onChange={(e) => setHoldLabel(e.target.value)}
+                  placeholder="ex. Marie · table extérieure · n° de ticket"
+                  maxLength={60}
+                  className="mt-1 w-full rounded-md border border-[#E5E7EB] px-4 py-3 text-base outline-none focus:border-[#F97316]"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !holding) holdSale();
+                  }}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  La vente sera retrouvable depuis « Ventes en attente » sur le
+                  Hub.
+                </p>
+              </div>
+              <div className="flex items-baseline justify-between rounded-md bg-[#FAFAFA] px-4 py-3">
+                <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+                  Total mis en attente
+                </span>
+                <span className="text-2xl font-bold text-[#F97316] font-mono">
+                  {formatCurrency(totals.subtotal)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  data-testid="hold-cancel"
+                  onClick={() => setHoldOpen(false)}
+                  className="h-12 rounded-md border border-[#E5E7EB] bg-white text-sm font-bold uppercase tracking-wider text-[#4B5563] hover:bg-[#FAFAFA] active:scale-95"
+                >
+                  Annuler
+                </button>
+                <button
+                  data-testid="hold-confirm"
+                  disabled={holding}
+                  onClick={holdSale}
+                  className="h-12 rounded-md bg-[#F97316] text-sm font-bold uppercase tracking-wider text-white hover:bg-[#EA6B0E] active:scale-95 disabled:opacity-50"
+                >
+                  {holding ? "Mise en attente…" : "Mettre en attente"}
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setHoldOpen(false);
+                  navigate("/tables");
+                }}
+                className="w-full text-xs uppercase tracking-wider text-slate-500 hover:text-[#0A0A0A] font-semibold"
+              >
+                Voir les ventes en attente →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

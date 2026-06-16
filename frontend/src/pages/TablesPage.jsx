@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, Lock, Unlock, AlertCircle } from "lucide-react";
+import { Users, Lock, Unlock, AlertCircle, PauseCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency, formatDateTime } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -14,16 +14,20 @@ export default function TablesPage() {
   const [activeZone, setActiveZone] = useState("all");
   const [session, setSession] = useState(null);
   const [showOpenSession, setShowOpenSession] = useState(false);
+  const [holds, setHolds] = useState([]);
 
   const load = async () => {
-    const [z, t, s] = await Promise.all([
+    const [z, t, s, o] = await Promise.all([
       api.get("/zones"),
       api.get("/tables"),
       api.get("/cash-sessions/current"),
+      api.get("/orders", { params: { status: "open" } }),
     ]);
     setZones(z.data);
     setTables(t.data);
     setSession(s.data || null);
+    // counter holds = open orders without a table
+    setHolds((o.data || []).filter((order) => !order.table_id));
   };
 
   useEffect(() => {
@@ -98,6 +102,46 @@ export default function TablesPage() {
           </button>
         ))}
       </div>
+
+      {holds.length > 0 && (
+        <section className="mb-8" data-testid="counter-holds-section">
+          <div className="mb-3 flex items-center gap-2">
+            <PauseCircle className="h-5 w-5 text-[#F97316]" />
+            <h2 className="text-xs uppercase tracking-[0.1em] font-semibold text-slate-500">
+              Ventes en attente · Comptoir
+            </h2>
+            <span className="rounded-full bg-[#F97316] px-2 py-0.5 text-xs font-bold text-white">
+              {holds.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {holds.map((h) => (
+              <button
+                key={h.id}
+                data-testid={`hold-${h.id}`}
+                onClick={() => navigate(`/commande/${h.id}`)}
+                className="group flex flex-col rounded-md border-2 border-[#F97316] bg-orange-50 p-4 text-left transition-all hover:bg-orange-100 hover:shadow-md active:scale-[0.97]"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <PauseCircle className="h-5 w-5 text-[#F97316]" />
+                  <span className="text-xs uppercase tracking-wider font-bold text-[#F97316]">
+                    {h.items?.length || 0} art.
+                  </span>
+                </div>
+                <span className="text-base font-bold tracking-tight text-[#0A0A0A] truncate">
+                  {h.table_name || "Sans libellé"}
+                </span>
+                <span className="mt-1 text-xs text-slate-500">
+                  {h.server_name || "—"} · {formatDateTime(h.opened_at)}
+                </span>
+                <span className="mt-3 text-2xl font-bold text-[#F97316] font-mono">
+                  {formatCurrency(h.total || 0)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" data-testid="tables-grid">
         {filtered.map((t) => {
