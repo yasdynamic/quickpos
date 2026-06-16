@@ -870,6 +870,7 @@ async def send_to_kitchen(order_id: str):
 
 @api_router.post("/orders/{order_id}/pay")
 async def pay_order(order_id: str, payload: OrderPay):
+    await _require_open_session_or_400()
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Commande introuvable")
@@ -996,6 +997,7 @@ async def cancel_order(order_id: str):
 async def create_sale(payload: SaleCreate):
     if not payload.items:
         raise HTTPException(status_code=400, detail="Panier vide")
+    await _require_open_session_or_400()
 
     subtotal = round(sum(line.price * line.quantity for line in payload.items), 2)
     total = subtotal
@@ -1076,6 +1078,41 @@ async def current_session():
     return s or None
 
 
+async def _require_open_session_or_400() -> dict:
+    s = await get_current_session()
+    if not s:
+        raise HTTPException(status_code=400, detail="Aucune session de caisse ouverte. Ouvrez la caisse avant de vendre.")
+    return s
+
+
+@api_router.post("/cash-sessions/{session_id}/reopen")
+async def reopen_session(session_id: str, user=Depends(require_role("manager"))):
+    s = await db.cash_sessions.find_one({"id": session_id}, {"_id": 0})
+    if not s:
+        raise HTTPException(404, "Session introuvable")
+    if s["status"] != "closed":
+        raise HTTPException(400, "Session non clôturée")
+    # Only allow reopen on the same system day
+    closed_at = s.get("closed_at", "")
+    try:
+        closed_day = datetime.fromisoformat(closed_at).date()
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Date de clôture invalide")
+    today = datetime.now(timezone.utc).date()
+    if closed_day != today:
+        raise HTTPException(400, "Réouverture impossible : la journée est terminée")
+    # Make sure no other session is open
+    if await get_current_session():
+        raise HTTPException(400, "Une autre session est déjà ouverte")
+    await db.cash_sessions.update_one(
+        {"id": session_id},
+        {"$set": {"status": "open"}, "$unset": {"closed_at": "", "closing_cash_declared": "", "expected_cash": "", "cash_difference": ""}},
+    )
+    from nf525_loyalty import append_journal as _aj
+    await _aj("PARAM", session_id, {"action": "reopen_session", "by": user.get("name")})
+    return await db.cash_sessions.find_one({"id": session_id}, {"_id": 0})
+
+
 @api_router.post("/cash-sessions/open")
 async def open_session(payload: OpenSessionRequest):
     existing = await get_current_session()
@@ -1094,7 +1131,7 @@ async def open_session(payload: OpenSessionRequest):
 
 
 @api_router.post("/cash-sessions/{session_id}/close")
-async def close_session(session_id: str, payload: CloseSessionRequest):
+async def close_session(session_id: str, payload: CloseSessionRequest, user: Optional[dict] = Depends(current_user)):
     s = await db.cash_sessions.find_one({"id": session_id}, {"_id": 0})
     if not s:
         raise HTTPException(status_code=404, detail="Session introuvable")
@@ -1137,7 +1174,10 @@ async def close_session(session_id: str, payload: CloseSessionRequest):
 
     currency = await _get_currency()
     html = _build_z_html(data, currency)
-    recipients = await _resolve_recipients(payload.recipient_email)
+    # Server role cannot override the recipient list configured by admin
+    is_admin = user and user.get("role") == "admin"
+    override = payload.recipient_email if is_admin else None
+    recipients = await _resolve_recipients(override)
     email_result = await _maybe_send_email(
         recipients, f"QuickPOS · Rapport Z {closed_at[:10]}", html
     )
