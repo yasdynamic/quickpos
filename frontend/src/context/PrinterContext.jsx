@@ -123,7 +123,7 @@ export const PrinterProvider = ({ children }) => {
         cmd.init(),
         cmd.align(1),
         cmd.doubleSize(true),
-        cmd.text((settings?.print?.shop_name || "QuickPOS") + "\n"),
+        cmd.text((settings?.print?.shop_name || "WARYA") + "\n"),
         cmd.doubleSize(false),
         cmd.text("TEST IMPRESSION\n"),
         cmd.align(0),

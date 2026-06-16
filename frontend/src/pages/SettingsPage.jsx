@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { CircleDollarSign, Users, Mail, Printer, ShieldCheck, HardDrive } from "lucide-react";
+import { CircleDollarSign, Users, Mail, Printer, ShieldCheck, HardDrive, Store } from "lucide-react";
 import CurrencySection from "@/components/settings/CurrencySection";
 import UsersSection from "@/components/settings/UsersSection";
 import SmtpSection from "@/components/settings/SmtpSection";
 import PrintSection from "@/components/settings/PrintSection";
 import NF525Section from "@/components/settings/NF525Section";
 import BackupSection from "@/components/settings/BackupSection";
+import ShopSection from "@/components/settings/ShopSection";
 
 const TABS = [
+  { id: "shop", label: "Point de vente", icon: Store },
   { id: "currency", label: "Devise", icon: CircleDollarSign },
   { id: "users", label: "Utilisateurs", icon: Users },
   { id: "smtp", label: "Email SMTP", icon: Mail },
@@ -17,7 +19,7 @@ const TABS = [
 ];
 
 export default function SettingsPage() {
-  const [active, setActive] = useState("currency");
+  const [active, setActive] = useState("shop");
 
   return (
     <div className="p-8">
@@ -28,7 +30,7 @@ export default function SettingsPage() {
         <h1 className="text-4xl font-bold tracking-tight">Paramètres</h1>
       </header>
 
-      <div className="flex gap-2 mb-6 border-b border-[#E5E7EB]" data-testid="settings-tabs">
+      <div className="flex flex-wrap gap-2 mb-6 border-b border-[#E5E7EB]" data-testid="settings-tabs">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -46,6 +48,7 @@ export default function SettingsPage() {
         ))}
       </div>
 
+      {active === "shop" && <ShopSection />}
       {active === "currency" && <CurrencySection />}
       {active === "users" && <UsersSection />}
       {active === "smtp" && <SmtpSection />}

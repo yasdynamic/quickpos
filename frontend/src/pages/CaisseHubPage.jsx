@@ -13,10 +13,13 @@ import {
   Receipt,
   ShoppingBag,
   Trophy,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency, formatDateTime } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useLicense } from "@/context/LicenseContext";
 import OpenSessionModal from "@/components/OpenSessionModal";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -24,6 +27,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 export default function CaisseHubPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { status: licenseStatus } = useLicense();
   const [session, setSession] = useState(null);
   const [history, setHistory] = useState([]);
   const [openOrders, setOpenOrders] = useState([]);
@@ -158,16 +162,19 @@ export default function CaisseHubPage() {
         </div>
       )}
 
+      <LicenseBanner status={licenseStatus} />
+
       {dashboard && <LiveDashboard data={dashboard} />}
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
         <HubAction
           testid="hub-direct-sale"
           title="Vente directe"
-          subtitle="Encaissement rapide au comptoir"
+          subtitle={licenseStatus?.mode === "restricted" ? "Bloqué · Licence expirée" : "Encaissement rapide au comptoir"}
           color="#002FA7"
           icon={Zap}
-          disabled={!session}
+          disabled={!session || licenseStatus?.mode === "restricted"}
+          warning={licenseStatus?.mode === "restricted"}
           onClick={() => requireSession(() => navigate("/vente-rapide"))}
         />
         <HubAction
@@ -491,3 +498,85 @@ function StatCell({ testid, label, value, subvalue, icon: Icon, color }) {
     </div>
   );
 }
+
+function LicenseBanner({ status }) {
+  const navigate = useNavigate();
+  if (!status) return null;
+  const { mode, days_left } = status;
+  if (mode === "active") return null;
+
+  if (mode === "restricted") {
+    return (
+      <div
+        data-testid="license-banner-restricted"
+        className="mb-6 flex items-start gap-3 rounded-md border-2 border-[#FF2A2A] bg-red-50 p-4"
+      >
+        <ShieldAlert className="h-5 w-5 text-[#FF2A2A] mt-0.5 shrink-0" />
+        <div className="flex-1 text-sm">
+          <p className="font-bold text-[#FF2A2A]">Licence expirée — MODE RESTREINT</p>
+          <p className="text-red-900 mt-1">
+            Les nouvelles ventes sont bloquées. Vous pouvez consulter vos données
+            et imprimer vos rapports. Renouvelez votre licence pour reprendre les
+            encaissements.
+          </p>
+        </div>
+        <button
+          data-testid="license-banner-cta"
+          onClick={() => navigate("/activation")}
+          className="rounded-md bg-[#FF2A2A] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-red-700 active:scale-95"
+        >
+          Renouveler
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === "expiring_soon_30") {
+    return (
+      <div
+        data-testid="license-banner-30"
+        className="mb-6 flex items-start gap-3 rounded-md border border-[#FF2A2A] bg-red-50 p-4"
+      >
+        <ShieldAlert className="h-5 w-5 text-[#FF2A2A] mt-0.5 shrink-0" />
+        <div className="flex-1 text-sm">
+          <p className="font-bold text-[#FF2A2A]">
+            Licence expire dans {days_left} jour{days_left > 1 ? "s" : ""}
+          </p>
+          <p className="text-red-900 mt-1">
+            Contactez votre éditeur dès aujourd&apos;hui pour renouveler votre
+            licence et éviter l&apos;interruption d&apos;activité.
+          </p>
+        </div>
+        <button
+          onClick={() => navigate("/activation")}
+          className="rounded-md bg-[#FF2A2A] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-red-700 active:scale-95"
+        >
+          Renouveler
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === "expiring_soon_90") {
+    return (
+      <div
+        data-testid="license-banner-90"
+        className="mb-6 flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-4"
+      >
+        <ShieldCheck className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+        <div className="flex-1 text-sm">
+          <p className="font-bold text-amber-900">
+            Licence valide encore {days_left} jours
+          </p>
+          <p className="text-amber-800 mt-1">
+            Pensez à renouveler votre licence auprès de votre éditeur WARYA
+            pour assurer la continuité de service.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+

@@ -202,7 +202,7 @@ export default function SmtpSection() {
 
         <p className="mb-4 text-sm text-[#4B5563]">
           Si activé, ce serveur sera utilisé en priorité pour envoyer les rapports.
-          Sinon QuickPOS utilise Resend (si configurée).
+          Sinon WARYA utilise Resend (si configurée).
         </p>
 
         <p className="mb-2 text-xs uppercase tracking-wider font-semibold text-slate-500">

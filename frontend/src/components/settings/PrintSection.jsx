@@ -237,7 +237,7 @@ export default function PrintSection() {
         <p className="font-bold text-[#0A0A0A] mb-2">📦 Installation locale en kiosque</p>
         <ol className="ml-4 list-decimal space-y-1.5">
           <li>
-            Sur le terminal POS, ouvrez QuickPOS dans Chrome ou Edge en HTTPS.
+            Sur le terminal POS, ouvrez WARYA dans Chrome ou Edge en HTTPS.
           </li>
           <li>
             Cliquez sur l&apos;icône <strong>&laquo;&nbsp;Installer&nbsp;&raquo;</strong> dans la barre

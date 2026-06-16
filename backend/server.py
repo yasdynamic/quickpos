@@ -1,4 +1,4 @@
-"""QuickPOS backend - Clyo-style POS with tables, sessions, modifiers, X/Z reports."""
+"""WARYA backend - Clyo-style POS with tables, sessions, modifiers, X/Z reports."""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,7 @@ import uuid
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 import resend
 from dotenv import load_dotenv
@@ -32,7 +32,7 @@ if RESEND_API_KEY:
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
-app = FastAPI(title="QuickPOS API")
+app = FastAPI(title="WARYA API")
 api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(
@@ -109,6 +109,7 @@ class UserCreate(BaseModel):
 
 class LoginRequest(BaseModel):
     pin: str
+    name: Optional[str] = None
 
 
 class Category(BaseModel):
@@ -463,9 +464,21 @@ async def seed_data() -> None:
 # --- Auth ----------------------------------------------------------------
 @api_router.post("/auth/login")
 async def login(req: LoginRequest):
-    user_doc = await db.users.find_one({"pin": req.pin}, {"_id": 0})
-    if not user_doc:
-        raise HTTPException(status_code=401, detail="PIN incorrect")
+    pin = (req.pin or "").strip()
+    name = (req.name or "").strip()
+    if not pin:
+        raise HTTPException(status_code=400, detail="Code PIN requis")
+    if name:
+        # Match by name (case-insensitive) + PIN
+        import re as _re
+        regex = _re.compile(f"^{_re.escape(name)}$", _re.IGNORECASE)
+        user_doc = await db.users.find_one({"name": regex, "pin": pin}, {"_id": 0})
+        if not user_doc:
+            raise HTTPException(status_code=401, detail="Nom d'utilisateur ou PIN incorrect")
+    else:
+        user_doc = await db.users.find_one({"pin": pin}, {"_id": 0})
+        if not user_doc:
+            raise HTTPException(status_code=401, detail="PIN incorrect")
     return {
         "id": user_doc["id"],
         "name": user_doc["name"],
@@ -885,6 +898,7 @@ async def send_to_kitchen(order_id: str):
 
 @api_router.post("/orders/{order_id}/pay")
 async def pay_order(order_id: str, payload: OrderPay):
+    await _require_active_license_or_403()
     await _require_open_session_or_400()
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
@@ -1012,6 +1026,7 @@ async def cancel_order(order_id: str):
 async def create_sale(payload: SaleCreate):
     if not payload.items:
         raise HTTPException(status_code=400, detail="Panier vide")
+    await _require_active_license_or_403()
     await _require_open_session_or_400()
 
     subtotal = round(sum(line.price * line.quantity for line in payload.items), 2)
@@ -1202,7 +1217,7 @@ async def close_session(session_id: str, payload: CloseSessionRequest, user: Opt
     override = payload.recipient_email if is_admin else None
     recipients = await _resolve_recipients(override)
     email_result = await _maybe_send_email(
-        recipients, f"QuickPOS · Rapport Z {closed_at[:10]}", html
+        recipients, f"WARYA · Rapport Z {closed_at[:10]}", html
     )
 
     z_report = {
@@ -1475,7 +1490,7 @@ def _build_z_html(data: dict, currency: Optional[dict] = None) -> str:
         {top_rows_html}
       </table>
 
-      <p style='margin-top:32px;color:#9CA3AF;font-size:12px'>QuickPOS · Rapport Z automatique non modifiable</p>
+      <p style='margin-top:32px;color:#9CA3AF;font-size:12px'>WARYA · Rapport Z automatique non modifiable</p>
     </div>
     """
 
@@ -1502,7 +1517,7 @@ def _build_monthly_html(data: dict, currency: Optional[dict] = None) -> str:
       </table>
       <h2 style='margin-top:24px'>Détail journalier</h2>
       <table style='width:100%;border-collapse:collapse'>{_build_table_rows(day_rows)}</table>
-      <p style='margin-top:32px;color:#9CA3AF;font-size:12px'>QuickPOS · Rapport automatique</p>
+      <p style='margin-top:32px;color:#9CA3AF;font-size:12px'>WARYA · Rapport automatique</p>
     </div>
     """
 
@@ -1518,7 +1533,7 @@ def _send_via_smtp_sync(smtp: dict, to: List[str], subject: str, html: str) -> d
     username = smtp.get("username", "")
     password = smtp.get("password", "")
     from_email = smtp.get("from_email") or username
-    from_name = smtp.get("from_name", "QuickPOS")
+    from_name = smtp.get("from_name", "WARYA")
     use_tls = bool(smtp.get("use_tls", True))
 
     msg = MIMEMultipart("alternative")
@@ -1605,7 +1620,7 @@ async def send_daily(payload: SendReportRequest):
     html = _build_daily_html(data, currency)
     recipients = await _resolve_recipients(payload.recipient_email)
     result = await _maybe_send_email(
-        recipients, f"QuickPOS · Clôture {d.isoformat()}", html
+        recipients, f"WARYA · Clôture {d.isoformat()}", html
     )
     closure = {
         "id": new_id(),
@@ -1628,7 +1643,7 @@ async def send_monthly(payload: SendMonthlyRequest):
     html = _build_monthly_html(data, currency)
     recipients = await _resolve_recipients(payload.recipient_email)
     result = await _maybe_send_email(
-        recipients, f"QuickPOS · Rapport mensuel {payload.month:02d}/{payload.year}", html
+        recipients, f"WARYA · Rapport mensuel {payload.month:02d}/{payload.year}", html
     )
     return {"report": data, "email": result}
 
@@ -1664,7 +1679,7 @@ async def get_settings():
         "username": smtp_doc.get("username", ""),
         "password": "********" if smtp_doc.get("password") else "",
         "from_email": smtp_doc.get("from_email", ""),
-        "from_name": smtp_doc.get("from_name", "QuickPOS"),
+        "from_name": smtp_doc.get("from_name", "WARYA"),
         "use_tls": smtp_doc.get("use_tls", True),
         "enabled": bool(smtp_doc.get("enabled")),
     }
@@ -1674,8 +1689,14 @@ async def get_settings():
         "auto_print_receipt": print_doc.get("auto_print_receipt", True),
         "open_drawer_on_cash": print_doc.get("open_drawer_on_cash", True),
         "paper_width_mm": print_doc.get("paper_width_mm", 80),
-        "shop_name": print_doc.get("shop_name", "QuickPOS"),
+        "shop_name": print_doc.get("shop_name", "WARYA"),
+        "shop_address": print_doc.get("shop_address", ""),
+        "shop_phone": print_doc.get("shop_phone", ""),
+        "shop_email": print_doc.get("shop_email", ""),
+        "shop_tax_number": print_doc.get("shop_tax_number", ""),
+        "shop_website": print_doc.get("shop_website", ""),
         "footer_line": print_doc.get("footer_line", "Merci de votre visite"),
+        "logo_data_url": print_doc.get("logo_data_url", ""),
     }
     return {
         "report_email": REPORT_EMAIL,
@@ -1691,7 +1712,93 @@ async def get_settings():
             "points_per_currency": 1.0,
             "points_redemption_rate": 100.0,
         },
+        "role_permissions": (doc or {}).get("role_permissions") or DEFAULT_ROLE_PERMISSIONS,
     }
+
+
+# Catalogue of available permission keys, grouped by section. Used by frontend
+# to render the Profile permission matrix. Each key is granted/revoked per role.
+PERMISSION_CATALOG = [
+    {"section": "Caisse", "items": [
+        {"key": "pos.direct_sale", "label": "Vente directe (POS)"},
+        {"key": "pos.hold", "label": "Mise en attente"},
+        {"key": "tables.access", "label": "Plan de salle (encaissement)"},
+        {"key": "tables.open_order", "label": "Ouvrir une commande"},
+        {"key": "tables.cancel_order", "label": "Annuler une commande"},
+        {"key": "session.open", "label": "Ouvrir la caisse"},
+        {"key": "session.close", "label": "Clôturer la caisse"},
+        {"key": "session.reopen", "label": "Rouvrir une journée"},
+        {"key": "session.x_report", "label": "Bande de contrôle (X)"},
+        {"key": "discount.apply", "label": "Appliquer une remise"},
+        {"key": "refund.create", "label": "Créer un avoir"},
+    ]},
+    {"section": "Catalogue", "items": [
+        {"key": "products.read", "label": "Voir les produits"},
+        {"key": "products.write", "label": "Modifier les produits"},
+        {"key": "products.import_export", "label": "Import/Export Excel"},
+        {"key": "categories.write", "label": "Gérer les catégories"},
+        {"key": "tableplan.write", "label": "Config. plan de salle"},
+    ]},
+    {"section": "Stock & Achats", "items": [
+        {"key": "stock.read", "label": "Voir le stock"},
+        {"key": "stock.write", "label": "Mouvements de stock"},
+        {"key": "stock.inventory", "label": "Inventaire complet"},
+        {"key": "suppliers.read", "label": "Voir les fournisseurs"},
+        {"key": "suppliers.write", "label": "Gérer les fournisseurs"},
+    ]},
+    {"section": "Relation client", "items": [
+        {"key": "customers.read", "label": "Voir les clients"},
+        {"key": "customers.write", "label": "Gérer les clients"},
+    ]},
+    {"section": "Rapports", "items": [
+        {"key": "dashboard.read", "label": "Tableau de bord"},
+        {"key": "history.read", "label": "Historique des ventes"},
+        {"key": "reports.read", "label": "Rapports périodiques"},
+        {"key": "reports.email", "label": "Envoyer un rapport par email"},
+    ]},
+    {"section": "Administration", "items": [
+        {"key": "settings.shop", "label": "Identité du point de vente"},
+        {"key": "settings.currency", "label": "Devise"},
+        {"key": "settings.users", "label": "Utilisateurs & profils"},
+        {"key": "settings.smtp", "label": "Configuration SMTP"},
+        {"key": "settings.print", "label": "Paramètres d'impression"},
+        {"key": "settings.permissions", "label": "Permissions des profils"},
+        {"key": "settings.license", "label": "Licence"},
+        {"key": "settings.backup", "label": "Sauvegarde"},
+        {"key": "settings.nf525", "label": "NF525 & journal"},
+    ]},
+]
+
+
+def _flat_perm_keys() -> List[str]:
+    return [it["key"] for sec in PERMISSION_CATALOG for it in sec["items"]]
+
+
+# Default permission matrix. Admins get everything, managers most, servers
+# only the operational subset.
+DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
+    "admin": _flat_perm_keys(),
+    "manager": [
+        k for k in _flat_perm_keys()
+        if not k.startswith("settings.users")
+        and not k.startswith("settings.license")
+        and not k.startswith("settings.permissions")
+    ],
+    "server": [
+        "pos.direct_sale", "pos.hold",
+        "tables.access", "tables.open_order",
+        "session.open", "session.close", "session.x_report",
+        "discount.apply",
+        "products.read",
+        "customers.read", "customers.write",
+        "history.read",
+    ],
+}
+
+
+@api_router.get("/permissions/catalog")
+async def get_permissions_catalog():
+    return {"catalog": PERMISSION_CATALOG, "defaults": DEFAULT_ROLE_PERMISSIONS}
 
 
 class CurrencyConfig(BaseModel):
@@ -1707,7 +1814,7 @@ class SMTPConfigIn(BaseModel):
     username: str = ""
     password: str = ""  # if "********" -> keep existing
     from_email: str = ""
-    from_name: str = "QuickPOS"
+    from_name: str = "WARYA"
     use_tls: bool = True
     enabled: bool = False
 
@@ -1718,6 +1825,7 @@ class SettingsUpdate(BaseModel):
     report_recipients: Optional[List[EmailStr]] = None
     print: Optional[dict] = None
     loyalty: Optional[dict] = None
+    role_permissions: Optional[Dict[str, List[str]]] = None
 
 
 @api_router.put("/settings")
@@ -1747,8 +1855,15 @@ async def update_settings(payload: SettingsUpdate):
             "auto_print_receipt": bool(payload.print.get("auto_print_receipt", True)),
             "open_drawer_on_cash": bool(payload.print.get("open_drawer_on_cash", True)),
             "paper_width_mm": int(payload.print.get("paper_width_mm", 80)),
-            "shop_name": str(payload.print.get("shop_name", "QuickPOS"))[:40],
-            "footer_line": str(payload.print.get("footer_line", ""))[:80],
+            "shop_name": str(payload.print.get("shop_name", "WARYA"))[:60],
+            "shop_address": str(payload.print.get("shop_address", ""))[:200],
+            "shop_phone": str(payload.print.get("shop_phone", ""))[:40],
+            "shop_email": str(payload.print.get("shop_email", ""))[:80],
+            "shop_tax_number": str(payload.print.get("shop_tax_number", ""))[:60],
+            "shop_website": str(payload.print.get("shop_website", ""))[:80],
+            "footer_line": str(payload.print.get("footer_line", ""))[:120],
+            # Logo stored as data URL (base64). Max ~120 KB to keep doc light.
+            "logo_data_url": str(payload.print.get("logo_data_url", ""))[:160_000],
         }
     if payload.loyalty is not None:
         update["loyalty"] = {
@@ -1756,6 +1871,14 @@ async def update_settings(payload: SettingsUpdate):
             "points_per_currency": float(payload.loyalty.get("points_per_currency", 1.0)),
             "points_redemption_rate": float(payload.loyalty.get("points_redemption_rate", 100.0)),
         }
+    if payload.role_permissions is not None:
+        cleaned: Dict[str, List[str]] = {}
+        for role, perms in payload.role_permissions.items():
+            r = (role or "").strip().lower()
+            if not r:
+                continue
+            cleaned[r] = sorted({str(p).strip() for p in (perms or []) if str(p).strip()})
+        update["role_permissions"] = cleaned
     if not update:
         raise HTTPException(status_code=400, detail="Aucune modification fournie")
     await db.settings.update_one(
@@ -1776,20 +1899,20 @@ async def smtp_test(payload: SMTPTestRequest):
         raise HTTPException(status_code=400, detail="SMTP non configuré")
     html = """
     <div style='font-family:Arial,sans-serif;max-width:480px;margin:auto'>
-      <h2 style='color:#002FA7'>QuickPOS · Test SMTP</h2>
+      <h2 style='color:#002FA7'>WARYA · Test SMTP</h2>
       <p>Si vous recevez ce message, votre configuration SMTP est <strong>opérationnelle</strong>.</p>
-      <p style='color:#9CA3AF;font-size:12px;margin-top:24px'>Envoyé depuis la configuration QuickPOS.</p>
+      <p style='color:#9CA3AF;font-size:12px;margin-top:24px'>Envoyé depuis la configuration WARYA.</p>
     </div>
     """
     result = await _send_via_smtp(
-        smtp, [str(payload.to)], "QuickPOS · Test SMTP", html
+        smtp, [str(payload.to)], "WARYA · Test SMTP", html
     )
     return result
 
 
 @api_router.get("/")
 async def root():
-    return {"app": "QuickPOS", "status": "ok"}
+    return {"app": "WARYA", "status": "ok"}
 
 
 # --- NF525 + Loyalty extensions -----------------------------------------
@@ -2008,7 +2131,7 @@ async def export_backup():
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         meta = {
             "generated_at": now_iso(),
-            "app": "QuickPOS",
+            "app": "WARYA",
             "version": 1,
             "collections": collections,
         }
@@ -2023,7 +2146,7 @@ async def export_backup():
                 logger.warning("backup %s failed: %s", col, exc)
                 zf.writestr(f"{col}.error.txt", str(exc))
     buffer.seek(0)
-    filename = f"quickpos-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.zip"
+    filename = f"warya-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.zip"
     return StreamingResponse(
         buffer,
         media_type="application/zip",
@@ -2048,6 +2171,7 @@ class RefundCreate(BaseModel):
 
 @api_router.post("/refunds")
 async def create_refund(payload: RefundCreate, user: Optional[dict] = Depends(current_user)):
+    await _require_active_license_or_403()
     await _require_open_session_or_400()
     sale = await db.sales.find_one({"id": payload.sale_id}, {"_id": 0})
     if not sale:
@@ -2206,7 +2330,7 @@ async def export_products_xlsx():
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-    filename = f"quickpos-products-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.xlsx"
+    filename = f"warya-products-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.xlsx"
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2432,6 +2556,129 @@ async def close_inventory_session(session_id: str, user: Optional[dict] = Depend
     out = await db.inventory_sessions.find_one({"id": session_id}, {"_id": 0})
     out["adjustments_applied"] = adjustments
     return out
+
+
+# --- License (offline activation Ed25519 + AES-256) -------------------
+import licensing as _lic  # noqa: E402
+
+
+async def get_license_record() -> Optional[dict]:
+    return await db.license.find_one({"_id": "current"}, {"_id": 0})
+
+
+async def get_license_status() -> dict:
+    rec = await get_license_record()
+    fp = _lic.compute_fingerprint()
+    if not rec or not rec.get("payload"):
+        return {
+            "activated": False,
+            "mode": "unactivated",
+            "machine_fingerprint": fp,
+            "product": "WARYA",
+            "version": "1.0",
+        }
+    payload = rec["payload"]
+    check = _lic.verify_full(payload, expected_fingerprint=fp)
+    days_left = int(check.get("days_left") or 0)
+    if check["status"] == "valid":
+        mode = "active"
+        if days_left <= 30:
+            mode = "expiring_soon_30"
+        elif days_left <= 90:
+            mode = "expiring_soon_90"
+    elif check["status"] == "expired":
+        mode = "restricted"
+    else:
+        mode = "invalid"
+    return {
+        "activated": True,
+        "mode": mode,
+        "status": check["status"],
+        "days_left": days_left,
+        "reason": check.get("reason"),
+        "machine_fingerprint": fp,
+        "license": {
+            "licenseNumber": payload.get("licenseNumber"),
+            "company": payload.get("company"),
+            "clientName": payload.get("clientName"),
+            "edition": payload.get("edition"),
+            "maxUsers": payload.get("maxUsers"),
+            "maxWorkstations": payload.get("maxWorkstations"),
+            "activationDate": payload.get("activationDate"),
+            "expirationDate": payload.get("expirationDate"),
+        },
+        "product": "WARYA",
+        "version": "1.0",
+    }
+
+
+async def _require_active_license_or_403():
+    status = await get_license_status()
+    if status["mode"] in {"unactivated", "invalid"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Licence non activée. Importez une licence pour utiliser WARYA.",
+        )
+    if status["mode"] == "restricted":
+        raise HTTPException(
+            status_code=403,
+            detail="Licence expirée — mode restreint : impossible d'enregistrer de nouvelles ventes. Renouvelez votre licence.",
+        )
+
+
+@api_router.get("/license/status")
+async def license_status():
+    return await get_license_status()
+
+
+@api_router.get("/license/machine-id")
+async def license_machine_id():
+    return {
+        "machine_fingerprint": _lic.compute_fingerprint(),
+        "product": "WARYA",
+        "version": "1.0",
+    }
+
+
+@api_router.post("/license/activate")
+async def license_activate(file: UploadFile = File(...)):
+    raw = await file.read()
+    try:
+        payload = _lic.unwrap_license(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Fichier invalide : {exc}")
+    fp = _lic.compute_fingerprint()
+    check = _lic.verify_full(payload, expected_fingerprint=fp)
+    if check["status"] == "invalid":
+        raise HTTPException(status_code=400, detail=check.get("reason", "Licence invalide"))
+    if check["status"] == "expired":
+        raise HTTPException(status_code=400, detail="Cette licence est déjà expirée")
+    await db.license.update_one(
+        {"_id": "current"},
+        {"$set": {
+            "payload": payload,
+            "activated_at": now_iso(),
+            "machine_fingerprint": fp,
+        }},
+        upsert=True,
+    )
+    await append_journal("PARAM", payload.get("licenseNumber", "?"), {
+        "action": "license_activated",
+        "company": payload.get("company"),
+        "edition": payload.get("edition"),
+        "expires": payload.get("expirationDate"),
+    })
+    return await get_license_status()
+
+
+@api_router.delete("/license")
+async def license_clear(user=Depends(require_role("admin"))):
+    await db.license.delete_one({"_id": "current"})
+    await append_journal("PARAM", "license", {
+        "action": "license_cleared",
+        "by": user.get("name"),
+    })
+    return {"ok": True}
 
 
 app.include_router(api_router)

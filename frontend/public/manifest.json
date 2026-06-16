@@ -1,6 +1,6 @@
 {
-  "short_name": "QuickPOS",
-  "name": "QuickPOS · Caisse tactile",
+  "short_name": "WARYA",
+  "name": "WARYA · Caisse tactile",
   "description": "POS web léger compatible imprimante thermique 80mm et tiroir-caisse",
   "start_url": "/",
   "display": "standalone",
@@ -12,6 +12,18 @@
       "src": "favicon.ico",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
+    },
+    {
+      "src": "brand/warya-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "brand/warya-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }

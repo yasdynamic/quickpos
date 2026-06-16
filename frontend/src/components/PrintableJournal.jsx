@@ -14,7 +14,7 @@ export default function PrintableJournal({ shopName, sessionData, sales }) {
   return (
     <div className="print-only printable-z">
       <div className="z-header">
-        <p className="z-title">{shopName || "QuickPOS"}</p>
+        <p className="z-title">{shopName || "WARYA"}</p>
         <p>JOURNAL DE CLÔTURE Z</p>
         <p className="z-mono">{closed?.slice(0, 10)}</p>
       </div>

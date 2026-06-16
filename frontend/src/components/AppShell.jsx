@@ -15,6 +15,7 @@ import {
   Boxes,
   ClipboardList,
   RotateCcw,
+  MapPin,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -23,6 +24,7 @@ const NAV = [
   { to: "/tables", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables", roles: ["server", "manager", "admin"] },
   { to: "/session", label: "Sessions", icon: Banknote, testid: "nav-session", roles: ["server", "manager", "admin"] },
   { to: "/produits", label: "Produits", icon: Package, testid: "nav-products", roles: ["manager", "admin"] },
+  { to: "/plan-de-salle", label: "Config. salle", icon: MapPin, testid: "nav-tableplan", roles: ["manager", "admin"] },
   { to: "/stock", label: "Stock", icon: Boxes, testid: "nav-stock", roles: ["manager", "admin"] },
   { to: "/inventaire", label: "Inventaire", icon: ClipboardList, testid: "nav-inventory", roles: ["manager", "admin"] },
   { to: "/fournisseurs", label: "Fournisseurs", icon: Truck, testid: "nav-suppliers", roles: ["manager", "admin"] },
@@ -46,11 +48,17 @@ export default function AppShell({ children }) {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#FAFAFA]">
       <aside className="flex w-20 lg:w-64 shrink-0 flex-col border-r border-[#E5E7EB] bg-white">
-        <div className="flex h-16 items-center gap-2 px-4 lg:px-6 border-b border-[#E5E7EB]">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#002FA7] text-white">
-            <Zap className="h-5 w-5" />
-          </div>
-          <span className="hidden lg:block font-bold text-lg tracking-tight">QuickPOS</span>
+        <div className="flex h-24 items-center justify-center px-4 lg:px-6 border-b border-[#E5E7EB]">
+          <img
+            src="/brand/warya-icon-192.png"
+            alt="WARYA"
+            className="h-16 w-16 rounded-md object-contain lg:hidden"
+          />
+          <img
+            src="/brand/warya-blue-large.png"
+            alt="WARYA"
+            className="hidden lg:block h-16 object-contain"
+          />
         </div>
         <nav className="flex-1 flex flex-col gap-1 p-2 lg:p-3 overflow-y-auto">
           {NAV.filter((item) => !item.roles || item.roles.includes(user?.role || "server")).map((item) => (

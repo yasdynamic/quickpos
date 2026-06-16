@@ -15,7 +15,7 @@ export default function BackupSection() {
       if (!res.ok) throw new Error("Erreur de génération");
       const cd = res.headers.get("content-disposition") || "";
       const match = cd.match(/filename=([^;]+)/i);
-      const filename = (match && match[1].trim()) || "quickpos-backup.zip";
+      const filename = (match && match[1].trim()) || "warya-backup.zip";
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
