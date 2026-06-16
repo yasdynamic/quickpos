@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
+import { useSettings } from "@/context/SettingsContext";
 
 const empty = { name: "", price: "", category_id: "", stock: 0, track_stock: true };
 
@@ -280,6 +281,8 @@ export default function ProductsPage() {
 }
 
 function ProductModal({ editing, form, setForm, categories, onClose, onSave }) {
+  const { settings } = useSettings();
+  const sym = settings?.currency?.symbol || "";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="product-modal">
       <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
@@ -306,7 +309,7 @@ function ProductModal({ editing, form, setForm, categories, onClose, onSave }) {
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Prix (€)</span>
+              <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Prix {sym && `(${sym})`}</span>
               <input
                 data-testid="product-price"
                 inputMode="decimal"
