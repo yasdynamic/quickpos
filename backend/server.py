@@ -447,6 +447,37 @@ async def delete_user(user_id: str):
     return {"ok": True}
 
 
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    pin: Optional[str] = Field(default=None, min_length=4, max_length=6)
+    role: Optional[Role] = None
+    color: Optional[str] = None
+
+
+@api_router.put("/users/{user_id}")
+async def update_user(user_id: str, payload: UserUpdate):
+    existing = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    update: dict = {}
+    if payload.name is not None:
+        update["name"] = payload.name
+    if payload.pin is not None:
+        clash = await db.users.find_one({"pin": payload.pin, "id": {"$ne": user_id}})
+        if clash:
+            raise HTTPException(status_code=400, detail="Ce code PIN existe déjà")
+        update["pin"] = payload.pin
+    if payload.role is not None:
+        update["role"] = payload.role
+    if payload.color is not None:
+        update["color"] = payload.color
+    if not update:
+        raise HTTPException(status_code=400, detail="Aucune modification fournie")
+    await db.users.update_one({"id": user_id}, {"$set": update})
+    out = await db.users.find_one({"id": user_id}, {"_id": 0, "pin": 0})
+    return out
+
+
 # --- Categories ----------------------------------------------------------
 @api_router.get("/categories")
 async def list_categories():
@@ -1248,18 +1279,72 @@ def _build_monthly_html(data: dict, currency: Optional[dict] = None) -> str:
     """
 
 
+def _send_via_smtp_sync(smtp: dict, to: str, subject: str, html: str) -> dict:
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.utils import formataddr
+
+    host = smtp.get("host", "")
+    port = int(smtp.get("port", 587))
+    username = smtp.get("username", "")
+    password = smtp.get("password", "")
+    from_email = smtp.get("from_email") or username
+    from_name = smtp.get("from_name", "QuickPOS")
+    use_tls = bool(smtp.get("use_tls", True))
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = formataddr((from_name, from_email))
+    msg["To"] = to
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    if port == 465:
+        server = smtplib.SMTP_SSL(host, port, timeout=15)
+    else:
+        server = smtplib.SMTP(host, port, timeout=15)
+        if use_tls:
+            server.starttls()
+    try:
+        if username and password:
+            server.login(username, password)
+        server.sendmail(from_email, [to], msg.as_string())
+    finally:
+        server.quit()
+    return {"status": "sent", "transport": "smtp", "to": to}
+
+
+async def _send_via_smtp(smtp: dict, to: str, subject: str, html: str) -> dict:
+    try:
+        return await asyncio.to_thread(
+            _send_via_smtp_sync, smtp, to, subject, html
+        )
+    except Exception as exc:
+        logger.exception("SMTP error")
+        return {"status": "error", "transport": "smtp", "error": str(exc)}
+
+
 async def _maybe_send_email(to: Optional[str], subject: str, html: str) -> dict:
-    if not RESEND_API_KEY:
-        return {"status": "skipped", "reason": "RESEND_API_KEY non configurée"}
     if not to:
         return {"status": "skipped", "reason": "Aucun destinataire fourni"}
-    params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
-    try:
-        result = await asyncio.to_thread(resend.Emails.send, params)
-        return {"status": "sent", "email_id": result.get("id"), "to": to}
-    except Exception as exc:
-        logger.exception("Resend error")
-        return {"status": "error", "error": str(exc)}
+
+    # Prefer SMTP if enabled
+    doc = await db.settings.find_one({"_id": "config"}, {"_id": 0})
+    smtp = (doc or {}).get("smtp") or {}
+    if smtp.get("enabled") and smtp.get("host"):
+        return await _send_via_smtp(smtp, to, subject, html)
+
+    # Fallback to Resend if configured
+    if RESEND_API_KEY:
+        params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
+        try:
+            result = await asyncio.to_thread(resend.Emails.send, params)
+            return {"status": "sent", "transport": "resend", "email_id": result.get("id"), "to": to}
+        except Exception as exc:
+            logger.exception("Resend error")
+            return {"status": "error", "transport": "resend", "error": str(exc)}
+
+    return {"status": "skipped", "reason": "Aucun transport email configuré"}
 
 
 @api_router.post("/reports/daily/send")
@@ -1324,23 +1409,48 @@ async def get_settings():
         "decimals": 2,
         "position": "after",
     }
+    smtp_doc = (doc or {}).get("smtp") or {}
+    smtp_out = {
+        "host": smtp_doc.get("host", ""),
+        "port": smtp_doc.get("port", 587),
+        "username": smtp_doc.get("username", ""),
+        "password": "********" if smtp_doc.get("password") else "",
+        "from_email": smtp_doc.get("from_email", ""),
+        "from_name": smtp_doc.get("from_name", "QuickPOS"),
+        "use_tls": smtp_doc.get("use_tls", True),
+        "enabled": bool(smtp_doc.get("enabled")),
+    }
     return {
         "report_email": REPORT_EMAIL,
         "sender_email": SENDER_EMAIL,
-        "email_configured": bool(RESEND_API_KEY),
+        "email_configured": bool(RESEND_API_KEY) or smtp_out["enabled"],
+        "resend_configured": bool(RESEND_API_KEY),
+        "smtp": smtp_out,
         "currency": currency,
     }
 
 
 class CurrencyConfig(BaseModel):
-    code: str
-    symbol: str
+    code: str = Field(max_length=8)
+    symbol: str = Field(max_length=8)
     decimals: int = Field(ge=0, le=4)
     position: Literal["before", "after"] = "after"
 
 
+class SMTPConfigIn(BaseModel):
+    host: str = ""
+    port: int = Field(default=587, ge=1, le=65535)
+    username: str = ""
+    password: str = ""  # if "********" -> keep existing
+    from_email: str = ""
+    from_name: str = "QuickPOS"
+    use_tls: bool = True
+    enabled: bool = False
+
+
 class SettingsUpdate(BaseModel):
     currency: Optional[CurrencyConfig] = None
+    smtp: Optional[SMTPConfigIn] = None
 
 
 @api_router.put("/settings")
@@ -1348,12 +1458,42 @@ async def update_settings(payload: SettingsUpdate):
     update: dict = {}
     if payload.currency:
         update["currency"] = payload.currency.model_dump()
+    if payload.smtp is not None:
+        smtp_data = payload.smtp.model_dump()
+        # preserve existing password if masked
+        if smtp_data["password"] == "********":
+            existing = await db.settings.find_one({"_id": "config"}, {"_id": 0, "smtp": 1})
+            smtp_data["password"] = (existing or {}).get("smtp", {}).get("password", "")
+        update["smtp"] = smtp_data
     if not update:
         raise HTTPException(status_code=400, detail="Aucune modification fournie")
     await db.settings.update_one(
         {"_id": "config"}, {"$set": update}, upsert=True
     )
     return await get_settings()
+
+
+class SMTPTestRequest(BaseModel):
+    to: EmailStr
+
+
+@api_router.post("/settings/smtp/test")
+async def smtp_test(payload: SMTPTestRequest):
+    doc = await db.settings.find_one({"_id": "config"}, {"_id": 0})
+    smtp = (doc or {}).get("smtp") or {}
+    if not smtp.get("host"):
+        raise HTTPException(status_code=400, detail="SMTP non configuré")
+    html = """
+    <div style='font-family:Arial,sans-serif;max-width:480px;margin:auto'>
+      <h2 style='color:#002FA7'>QuickPOS · Test SMTP</h2>
+      <p>Si vous recevez ce message, votre configuration SMTP est <strong>opérationnelle</strong>.</p>
+      <p style='color:#9CA3AF;font-size:12px;margin-top:24px'>Envoyé depuis la configuration QuickPOS.</p>
+    </div>
+    """
+    result = await _send_via_smtp(
+        smtp, payload.to, "QuickPOS · Test SMTP", html
+    )
+    return result
 
 
 @api_router.get("/")

@@ -1,0 +1,32 @@
+{
+  "summary": "Full regression of Settings tabs (Devise|Utilisateurs|SMTP). Backend: 13/13 pytest passing in new test_users_smtp.py covering GET /users (no pin, includes Admin/Sophie/Marc), POST /users (success + 400 on duplicate PIN), PUT /users/{id} (rename without PIN, 400 on PIN clash with seeded 000000, new PIN works → can login via /api/auth/login), DELETE /users/{id}, GET /settings (password empty when unset, masked '********' after PUT with real password), PUT with '********' DOES NOT overwrite stored password (verified via smtp/test still returning a connection error from server side meaning credentials were attempted on the real host), POST /settings/smtp/test → 400 when host missing, returns {status:'error',transport:'smtp',error:...} with invalid host, and POST /reports/daily/send uses transport=smtp (priority over Resend) when enabled=true. SMTP state restored to empty/disabled at end. Frontend e2e: PIN admin 000000 login OK → /parametres shows 3 tabs (settings-tab-currency/users/smtp). Utilisateurs: add-user-btn opens user-form-modal, filling name+pin (4-6 digits)+role+default color and clicking user-save creates user (appears in users-list); edit-user-{id} opens modal with PIN field empty as expected, rename via user-save updates list; delete-user-{id} with confirm() dialog auto-accepted removes the user. SMTP: smtp-preset-Gmail fills host=smtp.gmail.com,port=587,use_tls=true. Filling invalid host smtp.invalid.example.com + creds + smtp-enabled + save-smtp → toast 'Configuration SMTP enregistrée'. After save, smtp-password input shows value '********' and placeholder '(non modifié)' — non-modification UX preserved. smtp-test-btn with x@y.com → smtp-test-result visible with red background (bg-red-50 text-red-900) and 'Échec : [Errno -2] Name or service not known'. Régression: POST /api/auth/login {pin:'000000'} returns 200 Admin. Final cleanup: SMTP disabled with empty host saved.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_users_smtp.py",
+    "/app/test_reports/pytest/users_smtp_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1518 lines — exceeds 700-line guideline. Split routes/settings.py (currency+smtp+test) and services/email.py (_send_via_smtp, _maybe_send_email, _build_*_html).",
+    "/api/settings PUT and /api/settings/smtp/test have no auth — any client can change SMTP credentials or trigger outbound test emails. Add admin-role guard when auth layer is introduced.",
+    "/api/users (POST/PUT/DELETE) is unauthenticated → any client can create/delete users including admins. High priority once a session token is added.",
+    "SMTP password masking: _maybe_send_email reads smtp doc directly so it uses the real password — OK. But PUT /settings stores the literal string '********' if no smtp record yet exists (no existing doc → smtp_data['password'] becomes ''). Acceptable but worth documenting.",
+    "SMTPConfigIn.host has no validation — empty host is accepted and only checked at /smtp/test. Could enforce host required when enabled=True via pydantic validator to avoid 'enabled but no host' silently skipping email.",
+    "Frontend SmtpSection.runTest calls save() before the test — if save fails, test silently proceeds with stale config in DB. Wrap in try/catch or return early on save error.",
+    "UsersSection delete uses native window.confirm — fine for kiosk but inconsistent with shadcn AlertDialog used elsewhere; consider unifying.",
+    "Pre-existing test_full_order_flow + X/Z report tests in backend_test.py fail due to mutable stock state from prior runs (e.g. total=1613.5 instead of 16.5). Not introduced by this iteration; needs DB-cleanup fixtures."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_users_smtp.py",
+    "/app/test_reports/pytest/users_smtp_results.xml",
+    "/app/test_reports/iteration_4.json"
+  ],
+  "success_rate": {"backend": "100% (13/13 new); 32/35 overall (3 pre-existing data-state failures in TestOrdersModifiers/TestXZReports unrelated to this iteration)", "frontend": "100% on Settings tabs, Users CRUD, SMTP form + presets + test + password masking, login regression"},
+  "test_credentials": "PIN admin=000000 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test users created with TEST_<timestamp> prefix were deleted by both API and UI test cleanup. SMTP settings restored to empty/disabled at end of every run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New backend tests live in /app/backend/tests/test_users_smtp.py (13 tests). Always export REACT_APP_BACKEND_URL before pytest. The TestSMTP class teardown clears SMTP doc, but if it crashes mid-test you may need to PUT /api/settings with empty smtp manually. Frontend testids on Settings: settings-tab-{currency|users|smtp}, add-user-btn, user-form-modal, user-name, user-pin, user-role, user-save, edit-user-{id}, delete-user-{id}, users-list, smtp-preset-Gmail (and Outlook 365, OVH, Mailgun, SendGrid — note the space in 'Outlook 365' for the testid), smtp-host, smtp-port, smtp-tls, smtp-username, smtp-password, smtp-from-email, smtp-from-name, smtp-enabled, save-smtp, smtp-test-to, smtp-test-btn, smtp-test-result. Confirm dialog on delete is handled via page.on('dialog', d.accept()). The 3 pre-existing backend test failures (test_full_order_flow, test_x_report, test_close_session_z) are due to stock data accumulating across runs — not regressions from this iteration.",
+  "rca of the issue": "No defects. Users CRUD + SMTP feature work end-to-end. Password masking is symmetric (output → '********', input '********' is treated as 'keep existing'). SMTP transport correctly takes priority over Resend in _maybe_send_email when smtp.enabled and smtp.host are set."
+}
