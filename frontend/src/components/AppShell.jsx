@@ -6,7 +6,6 @@ import {
   History,
   Mail,
   LogOut,
-  Zap,
   Banknote,
   Home,
   Settings as Cog,
@@ -18,32 +17,49 @@ import {
   MapPin,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useSettings } from "@/context/SettingsContext";
 
+// Each nav entry now declares a permission key it requires (when defined).
+// If the role has the permission OR the role is admin (full access), the entry is shown.
 const NAV = [
-  { to: "/", label: "Caisse", icon: Home, testid: "nav-hub", roles: ["server", "manager", "admin"] },
-  { to: "/tables", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables", roles: ["server", "manager", "admin"] },
-  { to: "/session", label: "Sessions", icon: Banknote, testid: "nav-session", roles: ["server", "manager", "admin"] },
-  { to: "/produits", label: "Produits", icon: Package, testid: "nav-products", roles: ["manager", "admin"] },
-  { to: "/plan-de-salle", label: "Config. salle", icon: MapPin, testid: "nav-tableplan", roles: ["manager", "admin"] },
-  { to: "/stock", label: "Stock", icon: Boxes, testid: "nav-stock", roles: ["manager", "admin"] },
-  { to: "/inventaire", label: "Inventaire", icon: ClipboardList, testid: "nav-inventory", roles: ["manager", "admin"] },
-  { to: "/fournisseurs", label: "Fournisseurs", icon: Truck, testid: "nav-suppliers", roles: ["manager", "admin"] },
-  { to: "/retours", label: "Retours / Avoirs", icon: RotateCcw, testid: "nav-refunds", roles: ["manager", "admin"] },
-  { to: "/clients", label: "Clients", icon: Users, testid: "nav-customers", roles: ["server", "manager", "admin"] },
-  { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard", roles: ["manager", "admin"] },
-  { to: "/historique", label: "Historique", icon: History, testid: "nav-history", roles: ["server", "manager", "admin"] },
-  { to: "/rapports", label: "Rapports", icon: Mail, testid: "nav-reports", roles: ["manager", "admin"] },
-  { to: "/parametres", label: "Paramètres", icon: Cog, testid: "nav-settings", roles: ["admin"] },
+  { to: "/", label: "Caisse", icon: Home, testid: "nav-hub", perm: null },
+  { to: "/tables", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables", perm: "tables.access" },
+  { to: "/session", label: "Sessions", icon: Banknote, testid: "nav-session", perm: "session.open" },
+  { to: "/produits", label: "Produits", icon: Package, testid: "nav-products", perm: "products.read" },
+  { to: "/plan-de-salle", label: "Config. salle", icon: MapPin, testid: "nav-tableplan", perm: "tableplan.write" },
+  { to: "/stock", label: "Stock", icon: Boxes, testid: "nav-stock", perm: "stock.read" },
+  { to: "/inventaire", label: "Inventaire", icon: ClipboardList, testid: "nav-inventory", perm: "stock.inventory" },
+  { to: "/fournisseurs", label: "Fournisseurs", icon: Truck, testid: "nav-suppliers", perm: "suppliers.read" },
+  { to: "/retours", label: "Retours / Avoirs", icon: RotateCcw, testid: "nav-refunds", perm: "refund.create" },
+  { to: "/clients", label: "Clients", icon: Users, testid: "nav-customers", perm: "customers.read" },
+  { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard", perm: "dashboard.read" },
+  { to: "/historique", label: "Historique", icon: History, testid: "nav-history", perm: "history.read" },
+  { to: "/rapports", label: "Rapports", icon: Mail, testid: "nav-reports", perm: "reports.read" },
+  { to: "/parametres", label: "Paramètres", icon: Cog, testid: "nav-settings", perm: "settings.shop" },
 ];
 
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
+  const { settings } = useSettings();
   const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
+
+  const userPerms = (() => {
+    const role = user?.role || "server";
+    if (role === "admin") return null; // admin sees everything
+    const rp = settings?.role_permissions || {};
+    return new Set(rp[role] || []);
+  })();
+
+  const visibleNav = NAV.filter((item) => {
+    if (!item.perm) return true;
+    if (userPerms === null) return true; // admin
+    return userPerms.has(item.perm);
+  });
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#FAFAFA]">
@@ -61,7 +77,7 @@ export default function AppShell({ children }) {
           />
         </div>
         <nav className="flex-1 flex flex-col gap-1 p-2 lg:p-3 overflow-y-auto">
-          {NAV.filter((item) => !item.roles || item.roles.includes(user?.role || "server")).map((item) => (
+          {visibleNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
