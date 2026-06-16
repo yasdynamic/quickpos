@@ -112,3 +112,9 @@ backups/
 logs/
 frontend/node_modules/.cache/default-development/17.pack
 electron/node_modules/electron/dist/electron
+.env
+.env.*
+*.env
+credentials.json
+*.key
+.credentials
