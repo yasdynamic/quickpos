@@ -1138,6 +1138,14 @@ async def close_session(session_id: str, payload: CloseSessionRequest, user: Opt
     if s["status"] != "open":
         raise HTTPException(status_code=400, detail="Session déjà fermée")
 
+    # Block closure while there are pending (open) orders — they must be paid or cancelled first
+    pending_count = await db.orders.count_documents({"status": "open"})
+    if pending_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Clôture impossible : {pending_count} vente(s) en attente. Encaissez ou annulez ces commandes avant de clôturer.",
+        )
+
     # Aggregate sales since opened_at
     sales = await db.sales.find(
         {"created_at": {"$gte": s["opened_at"]}, "session_id": session_id},

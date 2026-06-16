@@ -23,16 +23,19 @@ export default function SessionPage() {
   const [loadingClose, setLoadingClose] = useState(false);
   const [result, setResult] = useState(null);
   const [printSales, setPrintSales] = useState([]);
+  const [pendingOrders, setPendingOrders] = useState([]);
 
   const load = async () => {
-    const [s, h, settingsRes] = await Promise.all([
+    const [s, h, settingsRes, ordersRes] = await Promise.all([
       api.get("/cash-sessions/current"),
       api.get("/cash-sessions"),
       api.get("/settings"),
+      api.get("/orders", { params: { status: "open" } }),
     ]);
     setSession(s.data || null);
     setHistory(h.data || []);
     setSettings(settingsRes.data);
+    setPendingOrders(ordersRes.data || []);
     if (s.data) {
       const x = await api.get("/reports/x");
       setXData(x.data);
@@ -58,9 +61,11 @@ export default function SessionPage() {
       });
       setResult(res.data);
       // Fetch sales for the printable journal
+      let sales = [];
       try {
         const salesRes = await api.get("/sales", { params: { session_id: session.id } });
-        setPrintSales(salesRes.data || []);
+        sales = salesRes.data || [];
+        setPrintSales(sales);
       } catch {
         setPrintSales([]);
       }
@@ -73,7 +78,7 @@ export default function SessionPage() {
       // Auto-print Z journal directly to USB thermal printer
       if (appSettings?.print?.auto_print_z !== false) {
         if (printer.connected) {
-          await printer.printZ(res.data.report, salesForPrint);
+          await printer.printZ(res.data.report, sales);
         } else {
           toast.warning("Imprimante non connectée — journal Z non imprimé.");
         }
@@ -206,6 +211,32 @@ export default function SessionPage() {
                   <h2 className="text-xl font-bold">Effectuer la clôture Z</h2>
                 </div>
               </div>
+
+              {pendingOrders.length > 0 && (
+                <div
+                  data-testid="pending-orders-block"
+                  className="mb-5 flex items-start gap-3 rounded-md border border-amber-400 bg-amber-50 p-4"
+                >
+                  <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="flex-1 text-sm">
+                    <p className="font-bold text-amber-900">
+                      Clôture bloquée : {pendingOrders.length} vente(s) en attente
+                    </p>
+                    <p className="text-amber-800 mt-1">
+                      Encaissez ou annulez les commandes ouvertes avant de
+                      clôturer la journée.
+                    </p>
+                    <button
+                      data-testid="goto-pending-tables"
+                      onClick={() => navigate("/tables")}
+                      className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-600 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-amber-700 active:scale-95"
+                    >
+                      Voir les ventes en attente
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <label className="block">
                   <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">
@@ -241,12 +272,16 @@ export default function SessionPage() {
               </div>
               <button
                 data-testid="close-session-confirm"
-                disabled={loadingClose}
+                disabled={loadingClose || pendingOrders.length > 0}
                 onClick={closeSession}
-                className="mt-5 flex h-16 w-full items-center justify-center gap-3 rounded-md bg-[#0A0A0A] text-lg font-bold uppercase tracking-wider text-white hover:bg-black active:scale-[0.98] disabled:opacity-50"
+                className="mt-5 flex h-16 w-full items-center justify-center gap-3 rounded-md bg-[#0A0A0A] text-lg font-bold uppercase tracking-wider text-white hover:bg-black active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Lock className="h-5 w-5" />
-                {loadingClose ? "Clôture…" : "Clôturer la session & envoyer Z"}
+                {loadingClose
+                  ? "Clôture…"
+                  : pendingOrders.length > 0
+                  ? `Clôture bloquée (${pendingOrders.length} en attente)`
+                  : "Clôturer la session & envoyer Z"}
               </button>
             </section>
           )}

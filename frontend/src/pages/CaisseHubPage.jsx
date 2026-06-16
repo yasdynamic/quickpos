@@ -82,6 +82,22 @@ export default function CaisseHubPage() {
     next();
   };
 
+  const goClose = () => {
+    if (!session) {
+      toast.warning("Ouvrez d'abord la caisse");
+      setShowOpen(true);
+      return;
+    }
+    if (openOrders.length > 0) {
+      toast.warning(
+        `Clôture impossible : ${openOrders.length} vente(s) en attente. Encaissez ou annulez avant.`,
+      );
+      navigate("/tables");
+      return;
+    }
+    navigate("/session?view=z");
+  };
+
   const pendingTotal = openOrders.reduce((s, o) => s + (o.total || 0), 0);
 
   if (loading) {
@@ -169,11 +185,16 @@ export default function CaisseHubPage() {
         <HubAction
           testid="hub-close-day"
           title="Clôture de la journée"
-          subtitle="État Z · Envoi automatique par email"
+          subtitle={
+            openOrders.length > 0
+              ? `Bloqué · ${openOrders.length} vente(s) en attente`
+              : "État Z · Envoi automatique par email"
+          }
           color="#0A0A0A"
           icon={Lock}
           disabled={!session}
-          onClick={() => requireSession(() => navigate("/session?view=z"))}
+          warning={!!session && openOrders.length > 0}
+          onClick={goClose}
         />
       </section>
 
@@ -312,7 +333,7 @@ function SessionStatusCard({ session, reopenableSession, onOpen, onReopen, reope
   );
 }
 
-function HubAction({ testid, title, subtitle, color, icon: Icon, onClick, disabled, badge }) {
+function HubAction({ testid, title, subtitle, color, icon: Icon, onClick, disabled, badge, warning }) {
   return (
     <button
       data-testid={testid}
@@ -321,6 +342,8 @@ function HubAction({ testid, title, subtitle, color, icon: Icon, onClick, disabl
       className={`group relative flex flex-col items-start gap-4 rounded-lg border bg-white p-6 text-left transition-transform ${
         disabled
           ? "opacity-40 cursor-not-allowed border-[#E5E7EB]"
+          : warning
+          ? "border-amber-400 ring-2 ring-amber-100 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]"
           : "border-[#E5E7EB] hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]"
       }`}
       style={{ minHeight: 180 }}
@@ -333,7 +356,7 @@ function HubAction({ testid, title, subtitle, color, icon: Icon, onClick, disabl
       </div>
       <div>
         <p className="text-xl font-bold tracking-tight">{title}</p>
-        <p className="mt-1 text-sm text-[#4B5563]">{subtitle}</p>
+        <p className={`mt-1 text-sm ${warning ? "text-amber-700 font-semibold" : "text-[#4B5563]"}`}>{subtitle}</p>
       </div>
       {badge != null && (
         <span
