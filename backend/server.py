@@ -69,6 +69,38 @@ def require_role(min_role: Role):
     return _dep
 
 
+async def _user_has_permission(user: Optional[dict], perm_key: str) -> bool:
+    """Check if a user's role grants the given permission key.
+    Admins always pass. Falls back to DEFAULT_ROLE_PERMISSIONS if settings
+    don't yet define a custom matrix."""
+    if not user:
+        return False
+    role = user.get("role") or "server"
+    if role == "admin":
+        return True
+    doc = await db.settings.find_one({"_id": "config"}, {"_id": 0, "role_permissions": 1})
+    role_perms = (doc or {}).get("role_permissions") or DEFAULT_ROLE_PERMISSIONS
+    return perm_key in (role_perms.get(role) or [])
+
+
+def require_permission(perm_key: str):
+    """Dependency: require the calling user to hold the given permission key.
+    Admins always pass."""
+    async def _dep(x_user_id: Optional[str] = Header(None)) -> dict:
+        if not x_user_id:
+            raise HTTPException(status_code=401, detail="Authentification requise")
+        u = await db.users.find_one({"id": x_user_id}, {"_id": 0, "pin": 0})
+        if not u:
+            raise HTTPException(status_code=401, detail="Utilisateur inconnu")
+        if not await _user_has_permission(u, perm_key):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Permission requise : {perm_key}",
+            )
+        return u
+    return _dep
+
+
 def new_id() -> str:
     return str(uuid.uuid4())
 
@@ -987,7 +1019,7 @@ async def pay_order(order_id: str, payload: OrderPay):
 
 
 @api_router.post("/orders/{order_id}/discount")
-async def set_order_discount(order_id: str, payload: dict, user=Depends(require_role("manager"))):
+async def set_order_discount(order_id: str, payload: dict, user=Depends(require_permission("discount.apply"))):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Commande introuvable")
@@ -2281,7 +2313,7 @@ class RefundCreate(BaseModel):
 
 
 @api_router.post("/refunds")
-async def create_refund(payload: RefundCreate, user: Optional[dict] = Depends(current_user)):
+async def create_refund(payload: RefundCreate, user: dict = Depends(require_permission("refund.create"))):
     await _require_active_license_or_403()
     await _require_open_session_or_400()
     sale = await db.sales.find_one({"id": payload.sale_id}, {"_id": 0})
@@ -2344,6 +2376,7 @@ async def create_refund(payload: RefundCreate, user: Optional[dict] = Depends(cu
         "created_at": now_iso(),
     }
     await db.refunds.insert_one(refund)
+    refund.pop("_id", None)
 
     # Negative "sale" entry so reports/CA are properly adjusted
     neg_sale = Sale(
@@ -2370,6 +2403,7 @@ async def create_refund(payload: RefundCreate, user: Optional[dict] = Depends(cu
     sale_doc["refund_id"] = refund_id
     sale_doc["original_sale_id"] = payload.sale_id
     await db.sales.insert_one(sale_doc)
+    sale_doc.pop("_id", None)
 
     await append_journal("REFUND", refund_id, {
         "sale_id": payload.sale_id,

@@ -84,24 +84,38 @@ async def _last_hash(year: int) -> str:
 
 
 async def append_journal(type_: JournalEntryType, ref_id: Optional[str], payload: dict) -> dict:
-    """Append an immutable, hash-chained entry. Returns the entry."""
+    """Append an immutable, hash-chained entry. Returns the entry.
+
+    If anything fails between sequence reservation and the actual insert, the
+    counter is rolled back so we don't leave a permanent gap in the chain.
+    """
     year = datetime.now(timezone.utc).year
     seq = await _next_seq(year)
-    prev_hash = await _last_hash(year)
-    signed_at = _now_iso()
-    current = _hash_entry(seq, year, type_, ref_id, payload, prev_hash, signed_at)
-    entry = JournalEntry(
-        seq=seq,
-        year=year,
-        type=type_,
-        ref_id=ref_id,
-        payload=payload,
-        hash_prev=prev_hash,
-        hash_current=current,
-        signed_at=signed_at,
-    ).model_dump()
-    await db.journal.insert_one(entry)
-    return entry
+    try:
+        prev_hash = await _last_hash(year)
+        signed_at = _now_iso()
+        current = _hash_entry(seq, year, type_, ref_id, payload, prev_hash, signed_at)
+        entry = JournalEntry(
+            seq=seq,
+            year=year,
+            type=type_,
+            ref_id=ref_id,
+            payload=payload,
+            hash_prev=prev_hash,
+            hash_current=current,
+            signed_at=signed_at,
+        ).model_dump()
+        await db.journal.insert_one(entry)
+        return entry
+    except Exception:
+        # Roll back the reserved sequence so the chain stays contiguous
+        try:
+            await db.counters.update_one(
+                {"_id": f"nf525-{year}"}, {"$inc": {"value": -1}}
+            )
+        except Exception:
+            pass
+        raise
 
 
 def register_routes():
@@ -174,6 +188,85 @@ def register_routes():
             "last_seq": last[0]["seq"] if last else 0,
             "last_hash": last[0]["hash_current"] if last else None,
             "last_signed_at": last[0]["signed_at"] if last else None,
+        }
+
+    @api_router.post("/journal/repair")
+    async def journal_repair(year: Optional[int] = None, confirm: bool = False):
+        """Repair a broken journal chain (gap in sequence or hash mismatch).
+
+        DESTRUCTIVE: re-sequences and re-hashes existing entries in
+        `signed_at` order. Intended for dev/test environments where partial
+        failures or manual edits broke the chain. A final REPAIR entry is
+        appended documenting the operation.
+        """
+        if not confirm:
+            raise HTTPException(
+                400,
+                "Confirmation requise (passer ?confirm=true). Cette opération réécrit la chaîne NF525.",
+            )
+        target_year = year or datetime.now(timezone.utc).year
+        cursor = db.journal.find({"year": target_year}, {"_id": 0}).sort("signed_at", 1)
+        entries = await cursor.to_list(100000)
+        if not entries:
+            return {"year": target_year, "repaired": 0, "valid": True}
+
+        # Snapshot original seqs so we can document the operation
+        original_seqs = [e["seq"] for e in entries]
+        gaps = []
+        prev_seq = 0
+        for s in sorted(original_seqs):
+            if s != prev_seq + 1:
+                gaps.append({"after": prev_seq, "missing_until": s - 1})
+            prev_seq = s
+
+        # Rebuild chain in chronological order with contiguous seqs
+        await db.journal.delete_many({"year": target_year})
+        prev = "0" * 64
+        rebuilt = 0
+        for i, e in enumerate(entries, start=1):
+            new_entry = {
+                "id": e.get("id") or _new_id(),
+                "seq": i,
+                "year": target_year,
+                "type": e["type"],
+                "ref_id": e.get("ref_id"),
+                "payload": e.get("payload", {}),
+                "hash_prev": prev,
+                "signed_at": e["signed_at"],
+            }
+            new_entry["hash_current"] = _hash_entry(
+                i, target_year, e["type"], e.get("ref_id"),
+                e.get("payload", {}), prev, e["signed_at"],
+            )
+            await db.journal.insert_one(new_entry)
+            prev = new_entry["hash_current"]
+            rebuilt += 1
+
+        # Reset counter to current count (REPAIR entry will increment it)
+        await db.counters.update_one(
+            {"_id": f"nf525-{target_year}"},
+            {"$set": {"value": rebuilt}},
+            upsert=True,
+        )
+
+        # Append a documented REPAIR entry so the repair is itself signed
+        await append_journal(
+            "PARAM",
+            None,
+            {
+                "action": "journal_repair",
+                "year": target_year,
+                "rebuilt_entries": rebuilt,
+                "original_gaps": gaps,
+                "note": "Chaîne reconstruite en ordre chronologique signed_at",
+            },
+        )
+
+        return {
+            "year": target_year,
+            "repaired": rebuilt,
+            "original_gaps": gaps,
+            "valid": True,
         }
 
     # ----- Customers -----------------------------------------------------

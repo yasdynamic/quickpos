@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Search,
   Download,
+  Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatDateTime } from "@/lib/api";
@@ -38,6 +39,7 @@ export default function AuditSection() {
   const [search, setSearch] = useState("");
   const [verification, setVerification] = useState(null);
   const [verifying, setVerifying] = useState(false);
+  const [repairing, setRepairing] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -80,11 +82,33 @@ export default function AuditSection() {
       const r = await api.post("/journal/verify");
       setVerification(r.data);
       if (r.data.valid) toast.success(`Journal NF525 valide (${r.data.count} entrées)`);
-      else toast.error(`Journal corrompu — ${r.data.reason || "intégrité KO"}`);
+      else toast.error(`Journal corrompu — ${r.data.error || r.data.reason || "intégrité KO"}`);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Vérification impossible");
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const repair = async () => {
+    if (
+      !window.confirm(
+        "Cette opération va RECONSTRUIRE la chaîne NF525 (re-séquençage et re-hash en ordre chronologique). Une entrée PARAM 'journal_repair' sera ajoutée pour tracer l'opération. Continuer ?"
+      )
+    )
+      return;
+    setRepairing(true);
+    try {
+      const r = await api.post("/journal/repair", null, { params: { confirm: true } });
+      toast.success(
+        `Chaîne reconstruite : ${r.data.repaired} entrée(s). Vérifiez à nouveau.`
+      );
+      setVerification(null);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Réparation impossible");
+    } finally {
+      setRepairing(false);
     }
   };
 
@@ -159,11 +183,33 @@ export default function AuditSection() {
                 : "border-[#FF2A2A] bg-red-50 text-red-900"
             }`}
           >
-            <strong>
-              {verification.valid ? "✓ Chaîne valide" : "✗ Chaîne corrompue"}
-            </strong>{" "}
-            — {verification.count} entrée(s) vérifiée(s)
-            {verification.reason && ` · ${verification.reason}`}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <strong>
+                  {verification.valid ? "✓ Chaîne valide" : "✗ Chaîne corrompue"}
+                </strong>{" "}
+                — {verification.count ?? 0} entrée(s) vérifiée(s)
+                {(verification.error || verification.reason) &&
+                  ` · ${verification.error || verification.reason}`}
+                {verification.at_seq != null && (
+                  <span className="block mt-1 text-xs">
+                    Anomalie détectée au n° de séquence{" "}
+                    <code className="font-mono">#{verification.at_seq}</code>
+                  </span>
+                )}
+              </div>
+              {!verification.valid && (
+                <button
+                  data-testid="audit-repair"
+                  onClick={repair}
+                  disabled={repairing}
+                  className="flex shrink-0 items-center gap-2 rounded-md bg-[#FF2A2A] px-3 py-2 text-xs font-bold uppercase tracking-wider text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  <Wrench className="h-3.5 w-3.5" />
+                  {repairing ? "Réparation…" : "Réparer la chaîne"}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

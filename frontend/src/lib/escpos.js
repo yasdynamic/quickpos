@@ -53,6 +53,96 @@ export const cmd = {
   text: (s) => encoder.encode(stripAccents(s || "")),
 };
 
+// ---------------------------------------------------------------------------
+// Raster image (GS v 0) — used for printing the WARYA logo on each receipt.
+//
+// Format: 1D 76 30 m  xL xH  yL yH  d1 ... dk
+//   m   : mode (0 = normal, 1 = 2× width, 2 = 2× height, 3 = quadruple)
+//   xL,xH: image width in BYTES (so pixel-width / 8)
+//   yL,yH: image height in DOTS
+//   data : monochrome bitmap, 8 horizontal pixels packed per byte,
+//          MSB = leftmost pixel, "1" = black dot.
+// ---------------------------------------------------------------------------
+
+// Pack a monochrome ImageData-like {width, height, data} (RGBA8) into the
+// ESC/POS raster command. Pixels are considered "black" when their luminance
+// is below `threshold` (0..255). The width is rounded up to the next multiple
+// of 8 by padding with white pixels on the right.
+export const buildRasterImage = (imgData, { threshold = 180, mode = 0 } = {}) => {
+  const { width, height, data } = imgData;
+  const bytesPerRow = Math.ceil(width / 8);
+  const bitmap = new Uint8Array(bytesPerRow * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      // Treat fully-transparent as white; blend others on white background
+      const alpha = a / 255;
+      const lum =
+        (0.299 * r + 0.587 * g + 0.114 * b) * alpha + 255 * (1 - alpha);
+      if (lum < threshold) {
+        const byteIdx = y * bytesPerRow + (x >> 3);
+        bitmap[byteIdx] |= 0x80 >> (x & 7);
+      }
+    }
+  }
+  const xL = bytesPerRow & 0xff;
+  const xH = (bytesPerRow >> 8) & 0xff;
+  const yL = height & 0xff;
+  const yH = (height >> 8) & 0xff;
+  const header = new Uint8Array([GS, 0x76, 0x30, mode, xL, xH, yL, yH]);
+  const out = new Uint8Array(header.length + bitmap.length);
+  out.set(header, 0);
+  out.set(bitmap, header.length);
+  return out;
+};
+
+// Load an image URL (or data URL) and rasterize it to ESC/POS, scaling so
+// that the width never exceeds `maxWidth` dots (default 384 for 80mm paper).
+// Returns a Uint8Array containing the full GS v 0 command, or null on failure.
+export const loadLogoBytes = async (
+  src,
+  { maxWidth = 384, threshold = 180 } = {}
+) => {
+  if (!src) return null;
+  if (typeof document === "undefined") return null;
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.crossOrigin = "anonymous";
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error("logo load failed"));
+      im.src = src;
+    });
+    let w = img.naturalWidth || img.width;
+    let h = img.naturalHeight || img.height;
+    if (w === 0 || h === 0) return null;
+    if (w > maxWidth) {
+      h = Math.round((h * maxWidth) / w);
+      w = maxWidth;
+    }
+    // Round width down to a multiple of 8 so the raster maps cleanly
+    w = Math.max(8, w - (w % 8));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    // White background so transparent areas don't print as black noise
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const imgData = ctx.getImageData(0, 0, w, h);
+    return buildRasterImage(imgData, { threshold });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("logo rasterization failed", e);
+    return null;
+  }
+};
+
 // Build a single 80mm-formatted line: leftLabel ........... rightValue
 // width default 48 for 80mm, 32 for 58mm
 export const pad = (left, right, width = 48) => {
@@ -67,14 +157,35 @@ export const pad = (left, right, width = 48) => {
 
 export const dashed = (width = 48) => "-".repeat(width);
 
-// Build a receipt for a sale
-export const buildReceipt = ({ sale, shopName, footerLine, currency, width = 48 }) => {
+// Build a receipt for a sale.
+// `logoBytes` is an optional Uint8Array containing a pre-built GS v 0 raster
+// (use `loadLogoBytes` ahead of time). `shopInfo` provides the rich shop
+// identity printed beneath the logo.
+export const buildReceipt = ({
+  sale,
+  shopName,
+  shopInfo,
+  footerLine,
+  currency,
+  width = 48,
+  logoBytes = null,
+}) => {
   const parts = [];
   parts.push(cmd.init());
   parts.push(cmd.align(1)); // center
+  if (logoBytes && logoBytes.length) {
+    parts.push(logoBytes);
+    parts.push(cmd.lf(1));
+  }
   parts.push(cmd.doubleSize(true));
   parts.push(cmd.text((shopName || "POS") + "\n"));
   parts.push(cmd.doubleSize(false));
+  if (shopInfo?.address) parts.push(cmd.text(shopInfo.address + "\n"));
+  if (shopInfo?.phone) parts.push(cmd.text("Tel : " + shopInfo.phone + "\n"));
+  if (shopInfo?.email) parts.push(cmd.text(shopInfo.email + "\n"));
+  if (shopInfo?.website) parts.push(cmd.text(shopInfo.website + "\n"));
+  if (shopInfo?.tax_number)
+    parts.push(cmd.text("N° fiscal : " + shopInfo.tax_number + "\n"));
   parts.push(cmd.text("Reçu de caisse\n"));
   parts.push(cmd.text(new Date(sale.created_at).toLocaleString("fr-FR") + "\n"));
   parts.push(cmd.align(0)); // left
@@ -120,14 +231,31 @@ export const buildReceipt = ({ sale, shopName, footerLine, currency, width = 48 
 };
 
 // Build a Z journal
-export const buildZJournal = ({ sessionData, sales, shopName, footerLine, currency, width = 48 }) => {
+export const buildZJournal = ({
+  sessionData,
+  sales,
+  shopName,
+  shopInfo,
+  footerLine,
+  currency,
+  width = 48,
+  logoBytes = null,
+}) => {
   const parts = [];
   const fmt = (v) => formatMoneyForPrint(v, currency);
   parts.push(cmd.init());
   parts.push(cmd.align(1));
+  if (logoBytes && logoBytes.length) {
+    parts.push(logoBytes);
+    parts.push(cmd.lf(1));
+  }
   parts.push(cmd.doubleSize(true));
   parts.push(cmd.text((shopName || "POS") + "\n"));
   parts.push(cmd.doubleSize(false));
+  if (shopInfo?.address) parts.push(cmd.text(shopInfo.address + "\n"));
+  if (shopInfo?.phone) parts.push(cmd.text("Tel : " + shopInfo.phone + "\n"));
+  if (shopInfo?.tax_number)
+    parts.push(cmd.text("N° fiscal : " + shopInfo.tax_number + "\n"));
   parts.push(cmd.bold(true));
   parts.push(cmd.text("JOURNAL Z\n"));
   parts.push(cmd.bold(false));

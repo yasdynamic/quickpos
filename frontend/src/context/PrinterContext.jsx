@@ -1,16 +1,21 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
 import * as Printer from "@/lib/printer";
-import { buildReceipt, buildZJournal, cmd } from "@/lib/escpos";
+import { buildReceipt, buildZJournal, cmd, loadLogoBytes } from "@/lib/escpos";
 import { useSettings } from "@/context/SettingsContext";
 
 const PrinterContext = createContext(null);
+
+const DEFAULT_LOGO_SRC = "/assets/warya-logo-print.png";
 
 export const PrinterProvider = ({ children }) => {
   const { settings } = useSettings();
   const [connected, setConnected] = useState(false);
   const [label, setLabel] = useState(null);
   const supported = Printer.isSupported();
+  // Cache rasterized logo bytes keyed by `${src}|${maxWidth}` to avoid
+  // rebuilding the bitmap for every receipt.
+  const logoCacheRef = useRef({ key: null, bytes: null });
 
   // Auto-reconnect to previously authorized device on mount
   useEffect(() => {
@@ -48,17 +53,43 @@ export const PrinterProvider = ({ children }) => {
   }, []);
 
   const width = (settings?.print?.paper_width_mm || 80) === 58 ? 32 : 48;
+  const maxLogoWidth = width === 32 ? 256 : 384;
+
+  // Resolve the logo source: prefer a user-configured data URL from settings,
+  // fall back to the bundled WARYA logo PNG.
+  const logoSrc = settings?.print?.logo_data_url || DEFAULT_LOGO_SRC;
+
+  const getLogoBytes = useCallback(async () => {
+    const cacheKey = `${logoSrc}|${maxLogoWidth}`;
+    if (logoCacheRef.current.key === cacheKey) {
+      return logoCacheRef.current.bytes;
+    }
+    const bytes = await loadLogoBytes(logoSrc, { maxWidth: maxLogoWidth });
+    logoCacheRef.current = { key: cacheKey, bytes };
+    return bytes;
+  }, [logoSrc, maxLogoWidth]);
+
+  const shopInfo = {
+    address: settings?.print?.shop_address || "",
+    phone: settings?.print?.shop_phone || "",
+    email: settings?.print?.shop_email || "",
+    website: settings?.print?.shop_website || "",
+    tax_number: settings?.print?.shop_tax_number || "",
+  };
 
   const printReceipt = useCallback(
     async (sale) => {
       if (!Printer.isConnected()) return false;
       try {
+        const logoBytes = await getLogoBytes();
         const bytes = buildReceipt({
           sale,
           shopName: settings?.print?.shop_name,
+          shopInfo,
           footerLine: settings?.print?.footer_line,
           currency: settings?.currency,
           width,
+          logoBytes,
         });
         await Printer.send(bytes);
         return true;
@@ -67,20 +98,24 @@ export const PrinterProvider = ({ children }) => {
         return false;
       }
     },
-    [settings, width]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings, width, getLogoBytes]
   );
 
   const printZ = useCallback(
     async (sessionData, sales) => {
       if (!Printer.isConnected()) return false;
       try {
+        const logoBytes = await getLogoBytes();
         const bytes = buildZJournal({
           sessionData,
           sales,
           shopName: settings?.print?.shop_name,
+          shopInfo,
           footerLine: settings?.print?.footer_line,
           currency: settings?.currency,
           width,
+          logoBytes,
         });
         await Printer.send(bytes);
         return true;
@@ -89,7 +124,8 @@ export const PrinterProvider = ({ children }) => {
         return false;
       }
     },
-    [settings, width]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings, width, getLogoBytes]
   );
 
   const openDrawer = useCallback(async () => {

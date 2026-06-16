@@ -1,5 +1,6 @@
 import { Printer, X } from "lucide-react";
 import { formatCurrency, formatDateTime } from "@/lib/api";
+import { useSettings } from "@/context/SettingsContext";
 
 const METHOD_LABEL = {
   cash: "ESPÈCES",
@@ -7,10 +8,17 @@ const METHOD_LABEL = {
   mobile: "MOBILE MONEY",
 };
 
+const DEFAULT_LOGO = "/assets/warya-logo-ui.png";
+
 export default function ReceiptModal({ open, onClose, sale }) {
+  const { settings } = useSettings();
   if (!open || !sale) return null;
 
   const handlePrint = () => window.print();
+
+  const shop = settings?.print || {};
+  const logoSrc = shop.logo_data_url || DEFAULT_LOGO;
+  const shopName = shop.shop_name || "WARYA";
 
   return (
     <div
@@ -41,9 +49,41 @@ export default function ReceiptModal({ open, onClose, sale }) {
         </header>
 
         <div className="receipt printable">
-          <div className="text-center">
-            <p className="font-bold text-base">QUICKPOS</p>
-            <p>Reçu de caisse</p>
+          <div className="flex flex-col items-center text-center">
+            <img
+              src={logoSrc}
+              alt={shopName}
+              data-testid="receipt-logo"
+              className="mb-2 max-h-16 w-auto object-contain"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+            <p data-testid="receipt-shop-name" className="font-bold text-base uppercase tracking-wide">
+              {shopName}
+            </p>
+            {shop.shop_address && (
+              <p data-testid="receipt-shop-address" className="text-xs leading-tight">
+                {shop.shop_address}
+              </p>
+            )}
+            {shop.shop_phone && (
+              <p data-testid="receipt-shop-phone" className="text-xs">
+                Tél : {shop.shop_phone}
+              </p>
+            )}
+            {shop.shop_email && (
+              <p className="text-xs">{shop.shop_email}</p>
+            )}
+            {shop.shop_website && (
+              <p className="text-xs">{shop.shop_website}</p>
+            )}
+            {shop.shop_tax_number && (
+              <p data-testid="receipt-shop-tax" className="text-xs">
+                N° fiscal : {shop.shop_tax_number}
+              </p>
+            )}
+            <p className="mt-1">Reçu de caisse</p>
             <p>{formatDateTime(sale.created_at)}</p>
           </div>
           <div className="dashed" />
@@ -78,7 +118,9 @@ export default function ReceiptModal({ open, onClose, sale }) {
             </div>
           )}
           <div className="dashed" />
-          <p className="text-center">Merci de votre visite !</p>
+          <p className="text-center">
+            {shop.footer_line || "Merci de votre visite !"}
+          </p>
         </div>
       </div>
     </div>
