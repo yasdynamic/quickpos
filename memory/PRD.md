@@ -1,67 +1,55 @@
-# QuickPOS - Product Requirements Document
+# QuickPOS - PRD
 
 ## Original Problem Statement
 > Une application de gestion de point de vente très légère avec une interface tactile et qui génère des états quotidiens et mensuels automatiquement envoyés par mail à la clôture de la journée
 
-## User Choices
-- **Type de commerce**: Générique configurable (restaurant + boutique + épicerie)
-- **Auth**: Code PIN (4-6 chiffres)
-- **Email**: Resend
-- **Paiements**: Espèces + Carte + Mobile Money
-- **Modules supplémentaires (style Clyo Systems)**: plan de salle, session de caisse, rapports X/Z, modificateurs, multi-serveurs
-
 ## Architecture
-- **Backend**: FastAPI + Motor (Mongo async) + Resend
+- **Backend**: FastAPI + Motor (Mongo async) + Resend SDK + smtplib
 - **Frontend**: React 19 + react-router 7 + Recharts + Sonner + Tailwind + Shadcn
 - **Design**: Swiss & High-Contrast, Manrope + IBM Plex Sans + JetBrains Mono, bleu #002FA7
 
 ## Personas
-- **Admin / Gérant**: gère catalogue, zones/tables, consulte rapports
-- **Serveur**: ouvre une session, encaisse, ouvre/clôture des tables, envoie en cuisine
-- **Patron**: reçoit les rapports Z par email automatiquement à la clôture
+- **Admin / Gérant**: paramètres (devise, utilisateurs, SMTP), catalogue, rapports
+- **Serveur**: ouvre une session, gère les tables, encaisse, envoie en cuisine
+- **Patron**: reçoit les rapports Z par email
 
-## Core Requirements
-- Connexion par PIN multi-utilisateur (admin/manager/server)
-- Catalogue : catégories, produits, **modificateurs** (groupes required/multi avec price_delta)
-- Plan de salle : zones + tables avec capacité et position
-- Commande par table : ouverture, ajout d'articles (avec modifiers), envoi en cuisine, paiement multi-moyens, ticket
-- Vente directe (take-away) : POS classique
-- **Session de caisse Clyo** : ouverture avec fond, vente liée à la session, fermeture avec comptage + écart, **rapport Z** définitif envoyé par email
-- **Rapport X** : aperçu intermédiaire sans clôturer
-- Rapports journaliers/mensuels par email (Resend)
-- Dashboard (KPIs + graphiques), historique des ventes
+## Implemented features
+### v1 — POS de base
+- Auth PIN, catalogue (catégories, produits, stock), POS tactile, ticket, dashboard, historique, rapports daily/monthly Resend
 
-## Implemented (2026-06-15 to 2026-06-16)
-### v1
-- PIN auth, catégories + produits avec stock, POS tactile, paiement multi-moyens, ticket, dashboard, historique, rapports daily/monthly par email
+### v2 — Clyo refactor
+- Multi-serveurs (admin/manager/server)
+- Zones + tables + plan de salle (libre/occupé)
+- Commande par table : open → add → send-to-kitchen → pay → libérée
+- Modificateurs (groupes required/multi avec price_delta)
+- Sessions de caisse : ouverture avec fond, fermeture avec écart
+- Rapports X (intermédiaire) et Z (clôture définitive + email)
 
-### v2 (Clyo refactor)
-- Multi-serveurs (admin 000000, Sophie 1111, Marc 2222)
-- Modificateurs sur produits (Cuisson requise, Suppléments multi)
-- Zones + Tables (Salle, Terrasse, Bar)
-- Plan de salle avec libre/occupé, total visible
-- Commandes par table : open → add items → send-to-kitchen → pay → table free
-- Annulation de commande
-- Sessions de caisse : open/current/close
-- Rapport X (intermédiaire) et Z (clôture avec écart de caisse + email Resend)
-- PIN admin migré de 1234 vers 000000 (migration auto)
+### v3 — Multi-devises
+- Settings DB persistées (devise: code, symbole, décimales, position)
+- Page `/parametres` avec presets (EUR, FCFA XOF/XAF, USD, GBP, CHF, MAD, TND, CAD)
+- Application immédiate dans toute l'app (caisse, rapports, emails)
 
-### Tests
-- Backend pytest 16/16 (auth, zones, tables, sessions, orders, modifiers, send-kitchen, pay, X, Z, cancel)
-- Frontend e2e Playwright 100% sur tous les flux
+### v4 — Paramètres avancés (style Clyo)
+- Onglets dans Paramètres : Devise / Utilisateurs / SMTP
+- **CRUD utilisateurs** : nom, PIN 4-6 chiffres, rôle (admin/manager/server), couleur
+- **SMTP** : host, port, user, password (masqué `********`), from_email, from_name, TLS, enabled
+- Presets SMTP : Gmail, Outlook 365, OVH, Mailgun, SendGrid
+- Bouton "Tester l'envoi" avec retour visuel
+- Priorité SMTP > Resend > skip dans `_maybe_send_email`
 
-## Prioritized Backlog
-- **P0** Configurer RESEND_API_KEY pour activer l'envoi réel des rapports
-- **P1** UI d'édition des modificateurs depuis la page Produits (actuellement seedés)
-- **P1** Scheduler CRON pour clôture Z automatique à heure fixe
-- **P1** Splitter backend en modules (routes/services) — server.py ~1300 lignes
-- **P2** Plan de salle drag&drop pour repositionner les tables
-- **P2** Impression réelle (imprimante thermique ESC/POS, kitchen printer)
+## Tests cumulatifs
+- v1: 16/16 backend (initial)
+- v2: 16/16 (full Clyo)
+- v3: 22/22 (currency)
+- v4: 13/13 nouveaux (users + SMTP) — 100% frontend e2e à chaque itération
+
+## Backlog
+- **P1** Splitter `server.py` (~1500 lignes) en modules routes/services
+- **P1** Auth boundaries: tokens JWT + protection des routes par rôle (les endpoints settings/users ne sont pas protégés)
+- **P1** Scheduler CRON pour clôture Z automatique
+- **P2** UI d'édition des modificateurs depuis Produits
+- **P2** Drag&drop pour repositionner les tables sur le plan
 - **P2** Programme de fidélité par numéro de téléphone
-- **P2** Remises / promotions / TVA paramétrable
-- **P2** Backend auth boundaries (tokens, permissions par rôle)
-- **P2** Stock insuffisant → 400 explicite plutôt qu'underflow silencieux à 0
-
-## Next Tasks
-- Fournir une clé Resend pour activer l'envoi email
-- Configurer SENDER_EMAIL et REPORT_EMAIL dans /app/backend/.env
+- **P2** TVA et remises paramétrables
+- **P2** Impression réelle (ESC/POS thermique + cuisine)
