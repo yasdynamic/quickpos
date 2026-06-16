@@ -8,8 +8,9 @@
 // build time via the WARYA_URL environment variable, which lets you ship the
 // same Electron build pointing to staging / production / on-premise URLs.
 
-const { app, BrowserWindow, Menu, shell, session } = require("electron");
+const { app, BrowserWindow, Menu, shell, session, dialog } = require("electron");
 const path = require("node:path");
+const { autoUpdater } = require("electron-updater");
 const { WARYA_URL } = require("./config");
 
 const TARGET_URL = process.env.WARYA_URL || WARYA_URL;
@@ -129,11 +130,61 @@ app.whenReady().then(() => {
   app.setName("WARYA");
   buildMenu();
   createWindow();
+  setupAutoUpdater();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Auto-update via electron-updater + GitHub Releases.
+// Skipped in dev (no installer) and for portable builds (no install path).
+// ---------------------------------------------------------------------------
+function setupAutoUpdater() {
+  if (isDev) return;
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return; // portable build
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowPrerelease = false; // set to true to ship alpha/beta updates
+
+  autoUpdater.on("update-available", (info) => {
+    if (mainWindow) {
+      mainWindow.webContents.executeJavaScript(
+        `console.info("[WARYA] Mise à jour disponible: v${info.version}, téléchargement en cours…")`
+      ).catch(() => {});
+    }
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    if (!mainWindow) return;
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      buttons: ["Redémarrer maintenant", "Plus tard"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "Mise à jour WARYA",
+      message: `WARYA v${info.version} est prêt à être installé.`,
+      detail:
+        "La mise à jour sera appliquée au prochain redémarrage. Voulez-vous relancer WARYA maintenant ?",
+    });
+    if (response === 0) {
+      setImmediate(() => autoUpdater.quitAndInstall());
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    // eslint-disable-next-line no-console
+    console.warn("[WARYA] electron-updater:", err?.message || err);
+  });
+
+  // Check immediately on startup, then every 6h
+  autoUpdater.checkForUpdates().catch(() => {});
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }, 6 * 60 * 60 * 1000);
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

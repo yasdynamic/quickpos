@@ -90,6 +90,18 @@ s'affiche normalement lors du premier `navigator.usb.requestDevice()`.
   navigateur système.
 - Aucun `eval`, aucune intégration Node dans le renderer.
 
+## Mises à jour automatiques (electron-updater)
+
+Le wrapper intègre **`electron-updater`** : à chaque démarrage et toutes les 6 heures, l'app interroge `https://github.com/yasdynamic/quickpos/releases/latest` (via le fichier `latest.yml` attaché à la Release). Si une nouvelle version est trouvée :
+
+1. Téléchargement silencieux en arrière-plan
+2. Dialogue natif : « Redémarrer maintenant / Plus tard »
+3. Au redémarrage, le `.exe` est remplacé et l'app se relance sur la nouvelle version
+
+**Pré-requis** : avoir publié au moins une Release stable initiale via `git tag v0.1.0 && git push origin v0.1.0`. Les Releases marquées **pre-release** (alpha/beta/rc) sont **ignorées par défaut** — modifier `autoUpdater.allowPrerelease = true` dans `src/main.js` si tu veux livrer les pré-releases aux clients.
+
+⚠️ Pour que l'auto-update fonctionne, **le `.exe` doit être signé** (sinon Windows refuse de remplacer un binaire signé par un binaire non-signé, et vice-versa). Voir section "Signature de code" ci-dessous.
+
 ## Roadmap V2 (Electron offline complet)
 
 Cette version (Option A) reste dépendante d'Internet : c'est un kiosk qui
