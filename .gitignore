@@ -91,3 +91,22 @@ frontend/node_modules/.cache/default-development/13.pack
 frontend/node_modules/.cache/default-development/20.pack
 frontend/node_modules/.cache/default-development/22.pack
 frontend/node_modules/.cache/default-development/24.pack
+
+
+# WARYA — Secrets & licences (NE JAMAIS COMMIT)
+backend/.env
+backend/.secrets/
+backend/.secrets/*.pem
+!backend/licensing/public_ed25519.pem
+*.lic
+backend/tests/__pycache__/
+test_reports/
+/tmp/
+
+# Backups locaux
+backups/
+*.bson
+
+# Logs
+*.log
+logs/

@@ -1,0 +1,34 @@
+All Rights Reserved — WARYA POS
+
+Copyright (c) 2026 yasdynamic. All rights reserved.
+
+This software and its source code are the exclusive property of the copyright
+holder. No part of this software may be:
+
+1. Copied, modified, merged, published, distributed, sublicensed, sold, or
+   used in any commercial or non-commercial context without prior written
+   permission from the copyright holder.
+
+2. Reverse-engineered, decompiled, or disassembled, except to the extent
+   expressly permitted by applicable law.
+
+3. Run in production without a valid, signed license file (`*.lic`) issued by
+   the copyright holder. License files are cryptographically tied to a single
+   machine fingerprint and have a fixed expiration date.
+
+Demonstration and evaluation:
+  - Cloning this repository for the sole purpose of reading the source code
+    or contributing back to the project is permitted.
+  - Running the software for development or evaluation purposes is permitted,
+    provided no commercial transaction is processed.
+
+Disclaimer:
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+For commercial licensing inquiries, contact the copyright holder.
