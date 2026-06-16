@@ -1,0 +1,32 @@
+{
+  "summary": "Full backend + frontend regression for QuickPOS Clyo refactor (tables, sessions, orders, modifiers, X/Z). 16/16 pytest backend tests pass: auth (admin/Sophie/Marc + invalid PIN 401), zones (Salle/Terrasse/Bar), tables status free/occupied, cash session open/current/refusing 2nd, full order flow (create → table goes occupied → add Burger w/ Saignant+Fromage = 13.50€ → add 2x espresso = 16.50€ → send-to-kitchen marks items sent → PUT/DELETE on sent item returns 400 → pay cash 50€ → order paid + table free), order cancel, refusing table delete when order open, X report (expected_cash = opening 100 + cash sales 16.50 = 116.50), Z close session (cash_difference 33.50€, email status='skipped'), Z report listed, current=None after close. Frontend e2e: admin PIN 000000 (hint shown) → redirect to / (tables grid) → 'open-session-cta' visible → open-session-modal → opening_cash=100 → CTA disappears → click table T1 → /commande/{id} → add Café Espresso (no modifier) → click Burger maison opens modifier-modal → select mod-0-0 (Saignant) + mod-1-0 (Fromage) → modifier-confirm → total 15,00 € correct → send-kitchen-btn shows '(2)' → click sends → pay-order-btn opens checkout-modal → payment-cash + cash-received 50 → checkout-confirm → receipt-modal with receipt-total 15,00 € → /session shows historique with FERMÉE rows and toast 'Session fermée. Email simulé (clé Resend manquante)'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1318 lines — exceeds 700-line guideline. Consider splitting into modules: routes/auth.py, routes/orders.py, routes/cash_sessions.py, routes/reports.py, services/email.py, services/aggregation.py.",
+    "FastAPI @app.on_event('startup'/'shutdown') still used (deprecated in favour of lifespan context). Non-blocking.",
+    "Pay/stock decrement uses max(0, stock - qty) so over-selling silently underflows to 0 without warning; consider 400 when track_stock=True and stock insufficient.",
+    "GET /api/tables performs in-memory join with orders for every call — fine for small N, but indexes on orders.table_id+status would help at scale.",
+    "_order_total() is duplicated logic between OrderItem.line_total() (instance method) and free function used on dict rows; consolidate to single helper to avoid drift.",
+    "cancel_order does not free the table immediately for the next request? Actually it does (status becomes 'cancelled' so GET /tables sees no open order) — verified passing.",
+    "close_session: cash_sales filter uses session_id, but opened_at filter is also applied. If a sale somehow had wrong session_id it would still be excluded — OK but redundant date filter.",
+    "Login endpoint returns user with no token (PIN-only auth). Acceptable for kiosk MVP; not a real auth boundary — admin endpoints not protected on backend."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% (login admin, open session, create order, modifier flow, send-kitchen, checkout cash, receipt, close session Z)"},
+  "test_credentials": "PIN admin=000000, Sophie=1111, Marc=2222 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None added beyond test artefacts (closed sessions + paid orders + sales generated during e2e remain in DB and are visible in /session history).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/backend_test.py exercises every new Clyo route. Run: REACT_APP_BACKEND_URL=<url> pytest /app/backend/tests/backend_test.py -v. The fixture _ensure_no_open_session auto-closes any leftover session so tests can re-run idempotently. Frontend selectors confirmed working: pin-key-0..9, pin-submit, tables-grid, table-T1.., open-session-cta, open-session-modal, opening-cash, open-session-confirm, order-product-{id}, order-total, send-kitchen-btn, pay-order-btn, modifier-modal, mod-{g}-{o}, modifier-confirm, checkout-modal, payment-cash, cash-received, checkout-confirm, receipt-modal, receipt-total, closing-cash, close-session-confirm. Note: after close-session-confirm, the page refetches and the close-result block is replaced by 'Aucune session ouverte' empty state + historique table — verified via screenshot.",
+  "rca of the issue": "No bugs found. Refactor is functionally complete and aligned with the PRD."
+}

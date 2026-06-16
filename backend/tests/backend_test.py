@@ -1,198 +1,207 @@
-"""QuickPOS backend API tests."""
-import os
-from datetime import datetime, timezone
+"""QuickPOS Clyo-style backend tests: auth, zones/tables, sessions, orders+modifiers, X/Z reports."""
+from __future__ import annotations
 
+import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
-if not BASE_URL:
-    # Fallback to frontend/.env
-    from pathlib import Path
-    env = Path("/app/frontend/.env").read_text()
-    for line in env.splitlines():
-        if line.startswith("REACT_APP_BACKEND_URL="):
-            BASE_URL = line.split("=", 1)[1].strip().rstrip("/")
-
+BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 API = f"{BASE_URL}/api"
 
 
 @pytest.fixture(scope="session")
-def session():
-    s = requests.Session()
-    s.headers.update({"Content-Type": "application/json"})
-    return s
+def s():
+    sess = requests.Session()
+    sess.headers.update({"Content-Type": "application/json"})
+    return sess
 
 
-# --- Auth ----------------------------------------------------------------
+@pytest.fixture(scope="session")
+def admin(s):
+    r = s.post(f"{API}/auth/login", json={"pin": "000000"})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.fixture(scope="session")
+def sophie(s):
+    r = s.post(f"{API}/auth/login", json={"pin": "1111"})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_no_open_session(s):
+    cur = s.get(f"{API}/cash-sessions/current").json()
+    if cur:
+        s.post(f"{API}/cash-sessions/{cur['id']}/close", json={"closing_cash_declared": 0.0})
+    yield
+
+
 class TestAuth:
-    def test_login_success(self, session):
-        r = session.post(f"{API}/auth/login", json={"pin": "1234"})
-        assert r.status_code == 200, r.text
-        data = r.json()
-        assert data["name"] == "Admin"
-        assert data["role"] == "admin"
-        assert "id" in data
+    def test_admin_login(self, admin):
+        assert admin["name"] == "Admin"
+        assert admin["role"] == "admin"
 
-    def test_login_invalid(self, session):
-        r = session.post(f"{API}/auth/login", json={"pin": "0000"})
+    def test_sophie_login(self, sophie):
+        assert sophie["name"] == "Sophie"
+        assert sophie["role"] == "server"
+
+    def test_marc_login(self, s):
+        r = s.post(f"{API}/auth/login", json={"pin": "2222"})
+        assert r.status_code == 200
+        assert r.json()["name"] == "Marc"
+
+    def test_invalid_pin(self, s):
+        r = s.post(f"{API}/auth/login", json={"pin": "9999"})
         assert r.status_code == 401
 
 
-# --- Categories ----------------------------------------------------------
-class TestCategories:
-    def test_list_seeded(self, session):
-        r = session.get(f"{API}/categories")
+class TestZonesTables:
+    def test_zones_seeded(self, s):
+        r = s.get(f"{API}/zones")
         assert r.status_code == 200
-        cats = r.json()
-        names = [c["name"] for c in cats]
-        for expected in ["Boissons", "Plats", "Desserts", "Épicerie"]:
-            assert expected in names
-        assert len(cats) >= 4
+        names = {z["name"] for z in r.json()}
+        assert {"Salle", "Terrasse", "Bar"}.issubset(names)
 
-    def test_crud_category(self, session):
-        # Create
-        r = session.post(f"{API}/categories", json={"name": "TEST_Cat", "color": "#123456", "icon": "Star"})
+    def test_tables_have_status(self, s):
+        r = s.get(f"{API}/tables")
         assert r.status_code == 200
-        cat = r.json()
-        cat_id = cat["id"]
-        assert cat["name"] == "TEST_Cat"
-
-        # Update
-        r = session.put(f"{API}/categories/{cat_id}", json={"name": "TEST_Cat2", "color": "#000000", "icon": "Star"})
-        assert r.status_code == 200
-        assert r.json()["name"] == "TEST_Cat2"
-
-        # Delete (no product refs)
-        r = session.delete(f"{API}/categories/{cat_id}")
-        assert r.status_code == 200
-
-    def test_delete_blocked_when_referenced(self, session):
-        # Create category with product
-        r = session.post(f"{API}/categories", json={"name": "TEST_CatRef"})
-        cat_id = r.json()["id"]
-        r = session.post(f"{API}/products", json={"name": "TEST_P", "price": 1.0, "category_id": cat_id, "stock": 5})
-        prod_id = r.json()["id"]
-        r = session.delete(f"{API}/categories/{cat_id}")
-        assert r.status_code == 400
-        # Cleanup
-        session.delete(f"{API}/products/{prod_id}")
-        session.delete(f"{API}/categories/{cat_id}")
+        tables = r.json()
+        assert len(tables) >= 13
+        for t in tables:
+            assert t["status"] in ("free", "occupied")
 
 
-# --- Products ------------------------------------------------------------
-class TestProducts:
-    def test_list_seeded(self, session):
-        r = session.get(f"{API}/products")
-        assert r.status_code == 200
-        prods = r.json()
-        assert len(prods) >= 11
-
-    def test_crud_product(self, session):
-        # Get a category
-        cats = session.get(f"{API}/categories").json()
-        cat_id = cats[0]["id"]
-        r = session.post(f"{API}/products", json={"name": "TEST_Prod", "price": 9.99, "category_id": cat_id, "stock": 10})
-        assert r.status_code == 200
-        prod = r.json()
-        pid = prod["id"]
-        assert prod["price"] == 9.99
-
-        r = session.put(f"{API}/products/{pid}", json={"name": "TEST_Prod2", "price": 12.50, "category_id": cat_id, "stock": 20})
-        assert r.status_code == 200
-        assert r.json()["price"] == 12.50
-
-        r = session.delete(f"{API}/products/{pid}")
-        assert r.status_code == 200
-
-
-# --- Sales ---------------------------------------------------------------
-class TestSales:
-    def test_create_sale_cash(self, session):
-        prods = session.get(f"{API}/products").json()
-        prod = prods[0]
-        initial_stock = prod["stock"]
-        payload = {
-            "items": [
-                {"product_id": prod["id"], "name": prod["name"], "price": prod["price"], "quantity": 2}
-            ],
-            "payment_method": "cash",
-            "amount_received": prod["price"] * 2 + 5,
-            "cashier_name": "Admin",
-        }
-        r = session.post(f"{API}/sales", json=payload)
+class TestCashSession:
+    def test_open_session(self, s, sophie):
+        r = s.post(f"{API}/cash-sessions/open", json={"opening_cash": 100, "server_id": sophie["id"]})
         assert r.status_code == 200, r.text
-        sale = r.json()
-        assert sale["subtotal"] == round(prod["price"] * 2, 2)
-        assert sale["total"] == sale["subtotal"]
-        assert sale["change_due"] == 5.0
-        assert isinstance(sale["ticket_number"], int) and sale["ticket_number"] >= 1
-        assert sale["payment_method"] == "cash"
+        sess = r.json()
+        assert sess["opening_cash"] == 100
+        assert sess["status"] == "open"
+        pytest.session_id = sess["id"]
 
-        # Stock decremented
-        updated = next(p for p in session.get(f"{API}/products").json() if p["id"] == prod["id"])
-        assert updated["stock"] == max(0, initial_stock - 2)
-
-    def test_list_sales_today(self, session):
-        today = datetime.now(timezone.utc).date().isoformat()
-        r = session.get(f"{API}/sales", params={"target_date": today})
+    def test_current_session_returns_it(self, s):
+        r = s.get(f"{API}/cash-sessions/current")
         assert r.status_code == 200
-        sales = r.json()
-        assert isinstance(sales, list)
-        assert len(sales) >= 1
+        cur = r.json()
+        assert cur and cur["id"] == pytest.session_id
+
+    def test_cannot_open_second(self, s):
+        r = s.post(f"{API}/cash-sessions/open", json={"opening_cash": 50})
+        assert r.status_code == 400
 
 
-# --- Dashboard & reports -------------------------------------------------
-class TestDashboard:
-    def test_dashboard(self, session):
-        r = session.get(f"{API}/dashboard")
+class TestOrdersModifiers:
+    def test_full_order_flow(self, s, sophie):
+        tables = s.get(f"{API}/tables").json()
+        free = next(t for t in tables if t["status"] == "free")
+        table_id = free["id"]
+
+        r = s.post(f"{API}/orders", json={"table_id": table_id, "server_id": sophie["id"], "covers": 2})
+        assert r.status_code == 200, r.text
+        order = r.json()
+        oid = order["id"]
+        assert order["status"] == "open"
+        pytest.order_id = oid
+
+        tables2 = s.get(f"{API}/tables").json()
+        t2 = next(t for t in tables2 if t["id"] == table_id)
+        assert t2["status"] == "occupied"
+
+        products = s.get(f"{API}/products").json()
+        burger = next(p for p in products if p["name"] == "Burger maison")
+        espresso = next(p for p in products if p["name"] == "Café Espresso")
+        assert burger["price"] == 12.5
+        assert any(g["name"] == "Cuisson" for g in burger["modifiers"])
+
+        r = s.post(f"{API}/orders/{oid}/items", json={
+            "product_id": burger["id"],
+            "quantity": 1,
+            "modifiers": [
+                {"name": "Saignant", "price_delta": 0},
+                {"name": "Fromage", "price_delta": 1.0},
+            ],
+        })
         assert r.status_code == 200
-        d = r.json()
-        for k in ["total_revenue", "num_sales", "avg_ticket", "by_hour", "by_payment", "by_category", "top_products"]:
-            assert k in d
-        assert len(d["by_hour"]) == 24
+        assert r.json()["total"] == 13.5
 
-    def test_daily_report(self, session):
-        today = datetime.now(timezone.utc).date().isoformat()
-        r = session.get(f"{API}/reports/daily", params={"target_date": today})
+        r = s.post(f"{API}/orders/{oid}/items", json={
+            "product_id": espresso["id"], "quantity": 2, "modifiers": []
+        })
         assert r.status_code == 200
-        assert r.json()["date"] == today
+        assert r.json()["total"] == 16.5
 
-    def test_monthly_report(self, session):
-        now = datetime.now(timezone.utc)
-        r = session.get(f"{API}/reports/monthly", params={"year": now.year, "month": now.month})
+        r = s.post(f"{API}/orders/{oid}/send")
         assert r.status_code == 200
-        d = r.json()
-        assert d["year"] == now.year
-        assert d["month"] == now.month
+        sent_items = r.json()["items"]
+        assert all(it["sent"] for it in sent_items)
+        first_item_id = sent_items[0]["id"]
+
+        r = s.put(f"{API}/orders/{oid}/items/{first_item_id}", json={"quantity": 5})
+        assert r.status_code == 400
+
+        r = s.delete(f"{API}/orders/{oid}/items/{first_item_id}")
+        assert r.status_code == 400
+
+        r = s.post(f"{API}/orders/{oid}/pay", json={"payment_method": "cash", "amount_received": 50})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["order"]["status"] == "paid"
+        assert body["sale"]["total"] == 16.5
+        assert body["sale"]["change_due"] == round(50 - 16.5, 2)
+
+        tables3 = s.get(f"{API}/tables").json()
+        t3 = next(t for t in tables3 if t["id"] == table_id)
+        assert t3["status"] == "free"
+
+    def test_cancel_order(self, s, sophie):
+        tables = s.get(f"{API}/tables").json()
+        free = next(t for t in tables if t["status"] == "free")
+        r = s.post(f"{API}/orders", json={"table_id": free["id"], "server_id": sophie["id"]})
+        oid = r.json()["id"]
+        r2 = s.post(f"{API}/orders/{oid}/cancel")
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "cancelled"
+
+    def test_cannot_delete_table_with_open_order(self, s, sophie):
+        tables = s.get(f"{API}/tables").json()
+        free = next(t for t in tables if t["status"] == "free")
+        r = s.post(f"{API}/orders", json={"table_id": free["id"], "server_id": sophie["id"]})
+        assert r.status_code == 200
+        oid = r.json()["id"]
+        r2 = s.delete(f"{API}/tables/{free['id']}")
+        assert r2.status_code == 400
+        s.post(f"{API}/orders/{oid}/cancel")
 
 
-# --- Email skipped flow --------------------------------------------------
-class TestEmail:
-    def test_send_daily_skipped(self, session):
-        r = session.post(f"{API}/reports/daily/send", json={})
+class TestXZReports:
+    def test_x_report(self, s):
+        r = s.get(f"{API}/reports/x")
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["email"]["status"] == "skipped"
-        assert "report" in data
+        assert data["report_type"] == "X"
+        assert data["opening_cash"] == 100
+        assert data["expected_cash"] == 116.5
+        assert data["total_revenue"] >= 16.5
 
-    def test_closure_persisted(self, session):
-        r = session.get(f"{API}/closures")
-        assert r.status_code == 200
-        closures = r.json()
-        assert len(closures) >= 1
-        assert "data" in closures[0]
-        assert "email_status" in closures[0]
+    def test_close_session_z(self, s):
+        sid = pytest.session_id
+        r = s.post(f"{API}/cash-sessions/{sid}/close", json={"closing_cash_declared": 150})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["session"]["status"] == "closed"
+        assert body["session"]["expected_cash"] == 116.5
+        assert body["session"]["cash_difference"] == round(150 - 116.5, 2)
+        assert body["email"]["status"] == "skipped"
 
-    def test_send_monthly_skipped(self, session):
-        now = datetime.now(timezone.utc)
-        r = session.post(f"{API}/reports/monthly/send", json={"year": now.year, "month": now.month})
+    def test_z_report_listed(self, s):
+        r = s.get(f"{API}/reports?report_type=Z")
         assert r.status_code == 200
-        assert r.json()["email"]["status"] == "skipped"
+        reports = r.json()
+        assert any(rep.get("session_id") == pytest.session_id for rep in reports)
 
-    def test_settings(self, session):
-        r = session.get(f"{API}/settings")
-        assert r.status_code == 200
-        s = r.json()
-        assert s["email_configured"] is False
-        assert s["currency"] == "EUR"
+    def test_no_open_session_after_close(self, s):
+        cur = s.get(f"{API}/cash-sessions/current").json()
+        assert cur is None

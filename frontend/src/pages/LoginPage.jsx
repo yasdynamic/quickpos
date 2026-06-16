@@ -78,7 +78,8 @@ export default function LoginPage() {
             )}
           </div>
           <p className="mt-4 text-sm text-slate-500" data-testid="default-pin-hint">
-            PIN admin par défaut : <span className="font-mono font-bold">1234</span>
+            PIN admin par défaut : <span className="font-mono font-bold">000000</span>
+            <span className="block mt-1 text-xs text-slate-400">Serveurs : Sophie (1111) · Marc (2222)</span>
           </p>
         </div>
 

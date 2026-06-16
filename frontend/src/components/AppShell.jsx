@@ -1,5 +1,4 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { useState } from "react";
 import {
   LayoutGrid,
   Package,
@@ -8,13 +7,15 @@ import {
   Mail,
   LogOut,
   Zap,
-  Lock,
+  Banknote,
+  Zap as Bolt,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import CloseDayModal from "@/components/CloseDayModal";
 
 const NAV = [
-  { to: "/", label: "Caisse", icon: LayoutGrid, testid: "nav-pos" },
+  { to: "/", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables" },
+  { to: "/vente-rapide", label: "Vente directe", icon: Bolt, testid: "nav-pos" },
+  { to: "/session", label: "Caisse", icon: Banknote, testid: "nav-session" },
   { to: "/produits", label: "Produits", icon: Package, testid: "nav-products" },
   { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard" },
   { to: "/historique", label: "Historique", icon: History, testid: "nav-history" },
@@ -24,7 +25,6 @@ const NAV = [
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [closeOpen, setCloseOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -40,7 +40,7 @@ export default function AppShell({ children }) {
           </div>
           <span className="hidden lg:block font-bold text-lg tracking-tight">QuickPOS</span>
         </div>
-        <nav className="flex-1 flex flex-col gap-1 p-2 lg:p-3">
+        <nav className="flex-1 flex flex-col gap-1 p-2 lg:p-3 overflow-y-auto">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -48,7 +48,7 @@ export default function AppShell({ children }) {
               end={item.to === "/"}
               data-testid={item.testid}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors ${
+                `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-[#002FA7] text-white"
                     : "text-[#4B5563] hover:bg-[#F4F6FB] hover:text-[#0A0A0A]"
@@ -61,22 +61,25 @@ export default function AppShell({ children }) {
           ))}
         </nav>
         <div className="border-t border-[#E5E7EB] p-3 space-y-2">
-          <button
-            data-testid="close-day-btn"
-            onClick={() => setCloseOpen(true)}
-            className="flex w-full items-center justify-center lg:justify-start gap-2 rounded-md bg-[#0A0A0A] px-3 py-3 text-sm font-bold uppercase tracking-wider text-white hover:bg-black active:scale-95 transition-transform"
-            title="Clôturer la journée"
+          <div
+            className="hidden lg:flex items-center gap-2 rounded-md px-2 py-2"
+            data-testid="current-user-card"
+            style={{ backgroundColor: (user?.color || "#0A0A0A") + "10" }}
           >
-            <Lock className="h-4 w-4" />
-            <span className="hidden lg:inline">Clôturer la journée</span>
-          </button>
-          <div className="hidden lg:flex flex-col mb-1 px-2 pt-1">
-            <span className="text-xs uppercase tracking-wider text-slate-500">
-              Connecté
+            <span
+              className="flex h-8 w-8 items-center justify-center rounded-md font-bold text-white text-sm"
+              style={{ backgroundColor: user?.color || "#0A0A0A" }}
+            >
+              {user?.name?.[0] || "?"}
             </span>
-            <span className="font-semibold text-sm" data-testid="current-user">
-              {user?.name}
-            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
+                {user?.role}
+              </p>
+              <p className="font-bold text-sm truncate" data-testid="current-user">
+                {user?.name}
+              </p>
+            </div>
           </div>
           <button
             data-testid="logout-btn"
@@ -89,7 +92,6 @@ export default function AppShell({ children }) {
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">{children}</main>
-      <CloseDayModal open={closeOpen} onClose={() => setCloseOpen(false)} />
     </div>
   );
 }
