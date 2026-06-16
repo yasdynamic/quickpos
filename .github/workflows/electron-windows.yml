@@ -32,7 +32,7 @@ on:
         default: ""
   push:
     tags:
-      - "v*.*.*"
+      - "v*"
 
 jobs:
   build-windows:
@@ -84,23 +84,41 @@ jobs:
         with:
           name: warya-windows-installer
           path: |
-            electron/dist/*.exe
+            electron/dist/WARYA-Setup-*.exe
+            electron/dist/WARYA-*-portable.exe
             electron/dist/*.exe.blockmap
             electron/dist/latest.yml
           if-no-files-found: error
+
+      - name: Detect pre-release
+        id: prerelease
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -match "alpha|beta|rc|pre") {
+            echo "is_prerelease=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "is_prerelease=false" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Create GitHub Release (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          name: "WARYA ${{ github.ref_name }}"
           files: |
-            electron/dist/*.exe
+            electron/dist/WARYA-Setup-*.exe
+            electron/dist/WARYA-*-portable.exe
             electron/dist/latest.yml
           body: |
-            **WARYA Windows installer**
+            ## WARYA ${{ github.ref_name }} — Windows installer
 
-            Téléchargez `WARYA-Setup-*.exe` et lancez-le sur votre poste Windows pour installer la caisse tactile.
+            Téléchargez l'un des deux fichiers ci-dessous :
+
+            - **`WARYA-Setup-*.exe`** — installateur classique NSIS (choix du dossier, raccourcis bureau + menu Démarrer, désinstallation propre)
+            - **`WARYA-*-portable.exe`** — version portable, aucune installation requise (lance directement)
 
             ${{ github.event.inputs.release_notes }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}

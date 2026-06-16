@@ -1,6 +1,6 @@
 {
   "name": "warya-desktop",
-  "version": "1.0.0",
+  "version": "0.1.0-alpha",
   "description": "WARYA — Caisse tactile (wrapper Electron Windows)",
   "author": {
     "name": "Yas Dynamic",
@@ -33,12 +33,16 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
       ],
       "icon": "build/icon.ico",
       "publisherName": "Yas Dynamic",
       "verifyUpdateCodeSignature": false,
       "signingHashAlgorithms": ["sha256"]
+    },
+    "portable": {
+      "artifactName": "WARYA-${version}-portable.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -51,7 +55,8 @@
       "uninstallerIcon": "build/icon.ico",
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true,
-      "menuCategory": "Caisse"
+      "menuCategory": "Caisse",
+      "artifactName": "WARYA-Setup-${version}.${ext}"
     },
     "publish": null
   }
