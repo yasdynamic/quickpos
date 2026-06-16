@@ -8,8 +8,6 @@ const METHOD_LABEL = {
   mobile: "MOBILE MONEY",
 };
 
-const DEFAULT_LOGO = "/assets/warya-logo-ui.png";
-
 export default function ReceiptModal({ open, onClose, sale }) {
   const { settings } = useSettings();
   if (!open || !sale) return null;
@@ -17,7 +15,7 @@ export default function ReceiptModal({ open, onClose, sale }) {
   const handlePrint = () => window.print();
 
   const shop = settings?.print || {};
-  const logoSrc = shop.logo_data_url || DEFAULT_LOGO;
+  const logoSrc = shop.logo_data_url || "";
   const shopName = shop.shop_name || "WARYA";
 
   return (
@@ -50,15 +48,17 @@ export default function ReceiptModal({ open, onClose, sale }) {
 
         <div className="receipt printable">
           <div className="flex flex-col items-center text-center">
-            <img
-              src={logoSrc}
-              alt={shopName}
-              data-testid="receipt-logo"
-              className="mb-2 max-h-16 w-auto object-contain"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
+            {logoSrc && (
+              <img
+                src={logoSrc}
+                alt={shopName}
+                data-testid="receipt-logo"
+                className="mb-2 max-h-16 w-auto object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            )}
             <p data-testid="receipt-shop-name" className="font-bold text-base uppercase tracking-wide">
               {shopName}
             </p>

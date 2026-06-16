@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Printer,
   Check,
@@ -7,16 +7,52 @@ import {
   Coins,
   AlertTriangle,
   CheckCircle2,
+  ImageIcon,
+  Trash2,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings } from "@/context/SettingsContext";
 import { usePrinter } from "@/context/PrinterContext";
+
+// Resize a File/Blob image client-side: max 600px wide, preserves alpha as
+// white. Returns a PNG data URL ready to be stored in settings.print.logo_data_url.
+const fileToLogoDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 600;
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (w > maxW) {
+          h = Math.round((h * maxW) / w);
+          w = maxW;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.onerror = () => reject(new Error("Image illisible"));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible"));
+    reader.readAsDataURL(file);
+  });
 
 export default function PrintSection() {
   const { settings, save } = useSettings();
   const { supported, connected, label, connect, disconnect, testPrint, openDrawer } = usePrinter();
   const [form, setForm] = useState(settings.print);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     setForm(settings.print);
@@ -31,6 +67,42 @@ export default function PrintSection() {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLogoFile = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Veuillez sélectionner une image (PNG ou JPG)");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image trop volumineuse (max 5 Mo)");
+      return;
+    }
+    setUploading(true);
+    try {
+      const dataUrl = await fileToLogoDataUrl(file);
+      const next = { ...form, logo_data_url: dataUrl };
+      setForm(next);
+      await save({ print: next });
+      toast.success("Logo du point de vente enregistré");
+    } catch (err) {
+      toast.error(err?.message || "Conversion impossible");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeLogo = async () => {
+    if (!window.confirm("Supprimer le logo du point de vente ?")) return;
+    const next = { ...form, logo_data_url: "" };
+    setForm(next);
+    try {
+      await save({ print: next });
+      toast.success("Logo supprimé");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
     }
   };
 
@@ -176,6 +248,72 @@ export default function PrintSection() {
             checked={form.open_drawer_on_cash ?? true}
             onChange={(v) => setForm({ ...form, open_drawer_on_cash: v })}
           />
+        </div>
+
+        <div className="mt-5 rounded-md border border-[#E5E7EB] bg-[#FAFAFA] p-4">
+          <div className="flex items-start gap-4">
+            <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-md border-2 border-dashed border-[#E5E7EB] bg-white overflow-hidden">
+              {form.logo_data_url ? (
+                <img
+                  src={form.logo_data_url}
+                  alt="Logo point de vente"
+                  data-testid="shop-logo-preview"
+                  className="max-h-full max-w-full object-contain"
+                />
+              ) : (
+                <ImageIcon className="h-8 w-8 text-slate-300" />
+              )}
+            </div>
+            <div className="flex-1">
+              <p className="text-xs uppercase tracking-wider font-semibold text-slate-500 mb-1">
+                Logo du point de vente
+              </p>
+              <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                Affiché sur l&apos;aperçu du ticket et imprimé en haut de chaque
+                reçu (raster ESC/POS). PNG ou JPG, 5 Mo max. Redimensionné
+                automatiquement à 600px.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  className="hidden"
+                  data-testid="shop-logo-input"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    handleLogoFile(f);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  data-testid="shop-logo-upload"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-2 rounded-md border border-[#002FA7] bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#002FA7] hover:bg-[#002FA7]/5 disabled:opacity-50"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  {uploading
+                    ? "Conversion…"
+                    : form.logo_data_url
+                    ? "Remplacer"
+                    : "Téléverser un logo"}
+                </button>
+                {form.logo_data_url && (
+                  <button
+                    type="button"
+                    data-testid="shop-logo-remove"
+                    onClick={removeLogo}
+                    className="flex items-center gap-2 rounded-md border border-[#E5E7EB] bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider text-[#FF2A2A] hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Retirer
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">

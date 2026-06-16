@@ -6,8 +6,6 @@ import { useSettings } from "@/context/SettingsContext";
 
 const PrinterContext = createContext(null);
 
-const DEFAULT_LOGO_SRC = "/assets/warya-logo-print.png";
-
 export const PrinterProvider = ({ children }) => {
   const { settings } = useSettings();
   const [connected, setConnected] = useState(false);
@@ -55,11 +53,15 @@ export const PrinterProvider = ({ children }) => {
   const width = (settings?.print?.paper_width_mm || 80) === 58 ? 32 : 48;
   const maxLogoWidth = width === 32 ? 256 : 384;
 
-  // Resolve the logo source: prefer a user-configured data URL from settings,
-  // fall back to the bundled WARYA logo PNG.
-  const logoSrc = settings?.print?.logo_data_url || DEFAULT_LOGO_SRC;
+  // Resolve the logo source: ONLY the shop logo configured in
+  // Paramètres → Impression. If none is uploaded, no logo is printed.
+  const logoSrc = settings?.print?.logo_data_url || "";
 
   const getLogoBytes = useCallback(async () => {
+    if (!logoSrc) {
+      logoCacheRef.current = { key: null, bytes: null };
+      return null;
+    }
     const cacheKey = `${logoSrc}|${maxLogoWidth}`;
     if (logoCacheRef.current.key === cacheKey) {
       return logoCacheRef.current.bytes;
