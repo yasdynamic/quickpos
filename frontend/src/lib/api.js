@@ -8,6 +8,18 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+// Add X-User-Id header automatically from localStorage for RBAC
+api.interceptors.request.use((config) => {
+  try {
+    const raw = localStorage.getItem("quickpos.user");
+    if (raw) {
+      const u = JSON.parse(raw);
+      if (u?.id) config.headers["X-User-Id"] = u.id;
+    }
+  } catch {/* ignore */}
+  return config;
+});
+
 // Mutable currency config — updated by SettingsProvider on app load + change
 let CURRENCY = { code: "EUR", symbol: "€", decimals: 2, position: "after" };
 

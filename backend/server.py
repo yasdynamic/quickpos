@@ -12,7 +12,7 @@ from typing import List, Literal, Optional
 
 import resend
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -44,6 +44,29 @@ logger = logging.getLogger(__name__)
 PaymentMethod = Literal["cash", "card", "mobile"]
 PAYMENT_LABELS = {"cash": "Espèces", "card": "Carte", "mobile": "Mobile Money"}
 Role = Literal["admin", "manager", "server"]
+ROLE_RANK = {"server": 1, "manager": 2, "admin": 3}
+
+
+from fastapi import Header  # noqa: E402
+
+
+async def current_user(x_user_id: Optional[str] = Header(None)) -> Optional[dict]:
+    if not x_user_id:
+        return None
+    return await db.users.find_one({"id": x_user_id}, {"_id": 0, "pin": 0})
+
+
+def require_role(min_role: Role):
+    async def _dep(x_user_id: Optional[str] = Header(None)) -> dict:
+        if not x_user_id:
+            raise HTTPException(status_code=401, detail="Authentification requise")
+        u = await db.users.find_one({"id": x_user_id}, {"_id": 0, "pin": 0})
+        if not u:
+            raise HTTPException(status_code=401, detail="Utilisateur inconnu")
+        if ROLE_RANK.get(u.get("role", "server"), 0) < ROLE_RANK[min_role]:
+            raise HTTPException(status_code=403, detail=f"Rôle {min_role} ou supérieur requis")
+        return u
+    return _dep
 
 
 def new_id() -> str:
@@ -124,6 +147,7 @@ class Product(BaseModel):
     track_stock: bool = True
     image_url: Optional[str] = None
     modifiers: List[ModifierGroup] = []
+    tva_rate: float = 20.0
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -135,6 +159,7 @@ class ProductCreate(BaseModel):
     track_stock: bool = True
     image_url: Optional[str] = None
     modifiers: List[ModifierGroup] = []
+    tva_rate: float = 20.0
 
 
 class Zone(BaseModel):
@@ -196,6 +221,14 @@ class OrderItemUpdate(BaseModel):
     modifiers: Optional[List[ModifierOption]] = None
 
 
+class OrderDiscount(BaseModel):
+    type: Literal["percent", "fixed"] = "percent"
+    value: float = 0.0
+    reason: Optional[str] = None
+    granted_by: Optional[str] = None
+    granted_at: str = Field(default_factory=now_iso)
+
+
 class Order(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=new_id)
@@ -205,6 +238,7 @@ class Order(BaseModel):
     server_name: Optional[str] = None
     status: Literal["open", "paid", "cancelled"] = "open"
     items: List[OrderItem] = []
+    discount: Optional[OrderDiscount] = None
     opened_at: str = Field(default_factory=now_iso)
     sent_at: Optional[str] = None
     paid_at: Optional[str] = None
@@ -272,7 +306,9 @@ class Sale(BaseModel):
     ticket_number: int
     items: List[CartLine] = []
     subtotal: float
+    discount_amount: float = 0.0
     total: float
+    tva_breakdown: dict = {}
     payment_method: PaymentMethod
     amount_received: Optional[float] = None
     change_due: Optional[float] = None
@@ -639,12 +675,47 @@ async def delete_table(table_id: str):
 
 
 # --- Orders --------------------------------------------------------------
-def _order_total(order: dict) -> float:
+def _order_subtotal(order: dict) -> float:
     total = 0.0
     for item in order.get("items", []):
         unit = item["base_price"] + sum(m["price_delta"] for m in item.get("modifiers", []))
         total += unit * item["quantity"]
     return round(total, 2)
+
+
+def _apply_discount(subtotal: float, discount: Optional[dict]) -> float:
+    if not discount or not discount.get("value"):
+        return 0.0
+    val = float(discount["value"])
+    if discount.get("type") == "percent":
+        return round(subtotal * min(val, 100) / 100.0, 2)
+    return round(min(val, subtotal), 2)
+
+
+def _order_total(order: dict) -> float:
+    sub = _order_subtotal(order)
+    disc = _apply_discount(sub, order.get("discount"))
+    return round(sub - disc, 2)
+
+
+async def _compute_tva_breakdown(items: List[dict]) -> dict:
+    """Returns {rate_str: {ht, tva, ttc}} from cart lines using product TVA rates."""
+    out: dict = {}
+    prod_cache: dict = {}
+    for it in items:
+        pid = it.get("product_id")
+        if pid and pid not in prod_cache:
+            prod_cache[pid] = await db.products.find_one({"id": pid}, {"_id": 0}) or {}
+        rate = float(prod_cache.get(pid, {}).get("tva_rate", 20.0))
+        ttc = float(it.get("price", 0)) * int(it.get("quantity", 1))
+        ht = round(ttc / (1 + rate / 100.0), 2)
+        tva = round(ttc - ht, 2)
+        key = f"{rate}"
+        cur = out.setdefault(key, {"ht": 0.0, "tva": 0.0, "ttc": 0.0})
+        cur["ht"] = round(cur["ht"] + ht, 2)
+        cur["tva"] = round(cur["tva"] + tva, 2)
+        cur["ttc"] = round(cur["ttc"] + ttc, 2)
+    return out
 
 
 async def _persist_order(order: dict) -> dict:
@@ -807,7 +878,9 @@ async def pay_order(order_id: str, payload: OrderPay):
     if not order.get("items"):
         raise HTTPException(status_code=400, detail="Commande vide")
 
-    total = _order_total(order)
+    subtotal_before_discount = _order_subtotal(order)
+    discount_amount = _apply_discount(subtotal_before_discount, order.get("discount"))
+    total = round(subtotal_before_discount - discount_amount, 2)
     change_due = None
     if payload.payment_method == "cash" and payload.amount_received is not None:
         change_due = round(payload.amount_received - total, 2)
@@ -841,11 +914,14 @@ async def pay_order(order_id: str, payload: OrderPay):
 
     session = await get_current_session()
 
+    tva_breakdown = await _compute_tva_breakdown([cl.model_dump() for cl in cart_lines])
     sale = Sale(
         ticket_number=await next_ticket_number(),
         items=cart_lines,
-        subtotal=total,
+        subtotal=subtotal_before_discount,
+        discount_amount=discount_amount,
         total=total,
+        tva_breakdown=tva_breakdown,
         payment_method=payload.payment_method,
         amount_received=payload.amount_received,
         change_due=change_due,
@@ -877,6 +953,27 @@ async def pay_order(order_id: str, payload: OrderPay):
     order["sale_id"] = sale.id
     await _persist_order(order)
     return {"order": order, "sale": sale}
+
+
+@api_router.post("/orders/{order_id}/discount")
+async def set_order_discount(order_id: str, payload: dict, user=Depends(require_role("manager"))):
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Commande introuvable")
+    if order["status"] != "open":
+        raise HTTPException(400, "Commande non ouverte")
+    if not payload.get("value"):
+        order["discount"] = None
+    else:
+        order["discount"] = OrderDiscount(
+            type=payload.get("type", "percent"),
+            value=float(payload.get("value", 0)),
+            reason=payload.get("reason"),
+            granted_by=user.get("name"),
+        ).model_dump()
+    await _persist_order(order)
+    order["total"] = _order_total(order)
+    return order
 
 
 @api_router.post("/orders/{order_id}/cancel")
@@ -915,11 +1012,13 @@ async def create_sale(payload: SaleCreate):
             )
 
     session = await get_current_session()
+    tva_breakdown = await _compute_tva_breakdown([line.model_dump() for line in payload.items])
     sale = Sale(
         ticket_number=await next_ticket_number(),
         items=payload.items,
         subtotal=subtotal,
         total=total,
+        tva_breakdown=tva_breakdown,
         payment_method=payload.payment_method,
         amount_received=payload.amount_received,
         change_due=change_due,
@@ -1123,6 +1222,37 @@ async def _aggregate_range(start_iso: str, end_iso: str) -> dict:
         {"created_at": {"$gte": start_iso, "$lt": end_iso}}, {"_id": 0}
     ).to_list(10000)
     return await _aggregate_sales(sales)
+
+
+@api_router.get("/reports/tva")
+async def tva_report(
+    target_date: Optional[str] = None,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+):
+    if year and month:
+        start, end = month_bounds(year, month)
+        scope = f"{year}-{month:02d}"
+    else:
+        d = date.fromisoformat(target_date) if target_date else datetime.now(timezone.utc).date()
+        start, end = day_bounds(d)
+        scope = d.isoformat()
+    sales = await db.sales.find(
+        {"created_at": {"$gte": start, "$lt": end}}, {"_id": 0}
+    ).to_list(10000)
+    total: dict = {}
+    for s in sales:
+        for rate, b in (s.get("tva_breakdown") or {}).items():
+            cur = total.setdefault(rate, {"ht": 0.0, "tva": 0.0, "ttc": 0.0})
+            cur["ht"] = round(cur["ht"] + b["ht"], 2)
+            cur["tva"] = round(cur["tva"] + b["tva"], 2)
+            cur["ttc"] = round(cur["ttc"] + b["ttc"], 2)
+    totals = {
+        "ht": round(sum(v["ht"] for v in total.values()), 2),
+        "tva": round(sum(v["tva"] for v in total.values()), 2),
+        "ttc": round(sum(v["ttc"] for v in total.values()), 2),
+    }
+    return {"scope": scope, "by_rate": total, "totals": totals, "num_sales": len(sales)}
 
 
 @api_router.get("/dashboard")

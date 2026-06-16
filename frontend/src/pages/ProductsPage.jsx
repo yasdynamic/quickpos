@@ -319,6 +319,21 @@ function ProductModal({ editing, form, setForm, categories, onClose, onSave }) {
               />
             </label>
             <label className="block">
+              <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">TVA (%)</span>
+              <select
+                data-testid="product-tva"
+                value={form.tva_rate ?? 20}
+                onChange={(e) => setForm({ ...form, tva_rate: parseFloat(e.target.value) })}
+                className="mt-1 w-full rounded-md border border-[#E5E7EB] bg-white px-4 py-3 font-mono outline-none focus:border-[#002FA7]"
+              >
+                <option value={20}>20% (standard)</option>
+                <option value={10}>10% (restauration)</option>
+                <option value={5.5}>5,5% (alimentaire)</option>
+                <option value={2.1}>2,1% (presse)</option>
+                <option value={0}>0% (exonéré)</option>
+              </select>
+            </label>
+            <label className="block">
               <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Stock</span>
               <input
                 data-testid="product-stock"

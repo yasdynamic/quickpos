@@ -15,15 +15,15 @@ import {
 import { useAuth } from "@/context/AuthContext";
 
 const NAV = [
-  { to: "/", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables" },
-  { to: "/vente-rapide", label: "Vente directe", icon: Bolt, testid: "nav-pos" },
-  { to: "/session", label: "Caisse", icon: Banknote, testid: "nav-session" },
-  { to: "/produits", label: "Produits", icon: Package, testid: "nav-products" },
-  { to: "/clients", label: "Clients", icon: Users, testid: "nav-customers" },
-  { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard" },
-  { to: "/historique", label: "Historique", icon: History, testid: "nav-history" },
-  { to: "/rapports", label: "Rapports", icon: Mail, testid: "nav-reports" },
-  { to: "/parametres", label: "Paramètres", icon: Cog, testid: "nav-settings" },
+  { to: "/", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables", roles: ["server", "manager", "admin"] },
+  { to: "/vente-rapide", label: "Vente directe", icon: Bolt, testid: "nav-pos", roles: ["server", "manager", "admin"] },
+  { to: "/session", label: "Caisse", icon: Banknote, testid: "nav-session", roles: ["server", "manager", "admin"] },
+  { to: "/produits", label: "Produits", icon: Package, testid: "nav-products", roles: ["manager", "admin"] },
+  { to: "/clients", label: "Clients", icon: Users, testid: "nav-customers", roles: ["server", "manager", "admin"] },
+  { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard", roles: ["manager", "admin"] },
+  { to: "/historique", label: "Historique", icon: History, testid: "nav-history", roles: ["server", "manager", "admin"] },
+  { to: "/rapports", label: "Rapports", icon: Mail, testid: "nav-reports", roles: ["manager", "admin"] },
+  { to: "/parametres", label: "Paramètres", icon: Cog, testid: "nav-settings", roles: ["admin"] },
 ];
 
 export default function AppShell({ children }) {
@@ -45,7 +45,7 @@ export default function AppShell({ children }) {
           <span className="hidden lg:block font-bold text-lg tracking-tight">QuickPOS</span>
         </div>
         <nav className="flex-1 flex flex-col gap-1 p-2 lg:p-3 overflow-y-auto">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.roles || item.roles.includes(user?.role || "server")).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ChefHat, Minus, Plus, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { useSettings } from "@/context/SettingsContext";
 import { usePrinter } from "@/context/PrinterContext";
 import CheckoutModal from "@/components/CheckoutModal";
@@ -12,9 +13,12 @@ import ModifierModal from "@/components/ModifierModal";
 export default function OrderPage() {
   const { orderId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { settings } = useSettings();
   const printer = usePrinter();
   const [order, setOrder] = useState(null);
+  const [showDiscount, setShowDiscount] = useState(false);
+  const [discountForm, setDiscountForm] = useState({ type: "percent", value: "", reason: "" });
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
   const [activeCat, setActiveCat] = useState("all");
@@ -106,6 +110,23 @@ export default function OrderPage() {
     await api.post(`/orders/${orderId}/cancel`);
     toast.success("Commande annulée");
     navigate("/");
+  };
+
+  const canDiscount = ["admin", "manager"].includes(user?.role);
+
+  const applyDiscount = async () => {
+    try {
+      await api.post(`/orders/${orderId}/discount`, {
+        type: discountForm.type,
+        value: parseFloat(discountForm.value) || 0,
+        reason: discountForm.reason || undefined,
+      });
+      toast.success(discountForm.value ? "Remise appliquée" : "Remise retirée");
+      setShowDiscount(false);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
   };
 
   const pay = async ({ payment_method, amount_received }) => {
@@ -313,6 +334,25 @@ export default function OrderPage() {
         </div>
 
         <div className="border-t border-[#E5E7EB] bg-[#FAFAFA] p-6 space-y-3">
+          {order.discount && order.discount.value > 0 && (
+            <div className="flex items-center justify-between rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-sm" data-testid="order-discount">
+              <div>
+                <p className="font-semibold text-orange-900">
+                  Remise {order.discount.type === "percent" ? `${order.discount.value}%` : formatCurrency(order.discount.value)}
+                </p>
+                {order.discount.reason && <p className="text-xs text-orange-700">{order.discount.reason}</p>}
+              </div>
+              {canDiscount && (
+                <button
+                  data-testid="remove-discount"
+                  onClick={async () => { await api.post(`/orders/${orderId}/discount`, { value: 0 }); load(); toast.info("Remise retirée"); }}
+                  className="text-xs font-bold uppercase tracking-wider text-orange-700 hover:underline"
+                >
+                  Retirer
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex items-baseline justify-between">
             <span className="text-sm uppercase tracking-wider font-semibold text-slate-500">
               Total
@@ -321,7 +361,7 @@ export default function OrderPage() {
               {formatCurrency(total)}
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               data-testid="send-kitchen-btn"
               disabled={unsentCount === 0}
@@ -329,8 +369,18 @@ export default function OrderPage() {
               className="flex h-14 items-center justify-center gap-2 rounded-md border-2 border-[#F97316] bg-white text-sm font-bold uppercase tracking-wider text-[#F97316] hover:bg-orange-50 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChefHat className="h-4 w-4" />
-              Envoyer cuisine ({unsentCount})
+              Cuisine ({unsentCount})
             </button>
+            {canDiscount && (
+              <button
+                data-testid="open-discount-btn"
+                onClick={() => setShowDiscount(true)}
+                className="flex h-14 items-center justify-center gap-2 rounded-md border-2 border-[#10B981] bg-white text-sm font-bold uppercase tracking-wider text-[#10B981] hover:bg-emerald-50 active:scale-95"
+              >
+                <Percent className="h-4 w-4" />
+                Remise
+              </button>
+            )}
             <button
               data-testid="cancel-order-btn"
               onClick={cancelOrder}
@@ -357,6 +407,71 @@ export default function OrderPage() {
         onClose={() => setModProduct(null)}
         onConfirm={addWithModifiers}
       />
+      {showDiscount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="discount-modal">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <header className="flex items-center justify-between mb-5">
+              <h3 className="text-xl font-bold">Appliquer une remise</h3>
+              <button onClick={() => setShowDiscount(false)} className="flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] hover:bg-[#FAFAFA]">
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  data-testid="discount-type-percent"
+                  onClick={() => setDiscountForm({ ...discountForm, type: "percent" })}
+                  className={`rounded-md border-2 px-4 py-3 text-sm font-bold uppercase tracking-wider ${
+                    discountForm.type === "percent" ? "border-[#10B981] bg-[#10B981] text-white" : "border-[#E5E7EB] bg-white"
+                  }`}
+                >
+                  Pourcentage
+                </button>
+                <button
+                  data-testid="discount-type-fixed"
+                  onClick={() => setDiscountForm({ ...discountForm, type: "fixed" })}
+                  className={`rounded-md border-2 px-4 py-3 text-sm font-bold uppercase tracking-wider ${
+                    discountForm.type === "fixed" ? "border-[#10B981] bg-[#10B981] text-white" : "border-[#E5E7EB] bg-white"
+                  }`}
+                >
+                  Montant fixe
+                </button>
+              </div>
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+                  Valeur {discountForm.type === "percent" ? "(%)" : `(${settings?.currency?.symbol || ""})`}
+                </span>
+                <input
+                  data-testid="discount-value"
+                  inputMode="decimal"
+                  value={discountForm.value}
+                  onChange={(e) => setDiscountForm({ ...discountForm, value: e.target.value })}
+                  className="mt-1 w-full rounded-md border border-[#E5E7EB] px-4 py-3 text-2xl font-bold font-mono outline-none focus:border-[#10B981]"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+                  Motif (optionnel)
+                </span>
+                <input
+                  data-testid="discount-reason"
+                  value={discountForm.reason}
+                  onChange={(e) => setDiscountForm({ ...discountForm, reason: e.target.value })}
+                  placeholder="ex: Anniversaire, fidélité…"
+                  className="mt-1 w-full rounded-md border border-[#E5E7EB] px-4 py-2.5 outline-none focus:border-[#10B981]"
+                />
+              </label>
+              <button
+                data-testid="apply-discount"
+                onClick={applyDiscount}
+                className="h-12 w-full rounded-md bg-[#10B981] text-sm font-bold uppercase tracking-wider text-white hover:bg-emerald-600"
+              >
+                Appliquer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <CheckoutModal
         open={checkoutOpen}
         onClose={() => setCheckoutOpen(false)}
