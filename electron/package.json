@@ -1,0 +1,58 @@
+{
+  "name": "warya-desktop",
+  "version": "1.0.0",
+  "description": "WARYA — Caisse tactile (wrapper Electron Windows)",
+  "author": {
+    "name": "Yas Dynamic",
+    "email": "courrier@dynamicaerialtech.com"
+  },
+  "homepage": "https://github.com/yasdynamic/quickpos",
+  "license": "Proprietary",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --x64",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "31.7.7",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.warya.pos",
+    "productName": "WARYA",
+    "copyright": "Copyright © 2026 Yas Dynamic",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico",
+      "publisherName": "Yas Dynamic",
+      "verifyUpdateCodeSignature": false,
+      "signingHashAlgorithms": ["sha256"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WARYA",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "menuCategory": "Caisse"
+    },
+    "publish": null
+  }
+}

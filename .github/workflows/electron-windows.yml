@@ -1,18 +1,33 @@
-name: Windows installer (Electron V2)
+name: Windows installer (Electron)
 
-# This workflow is a stub for the V2 Electron build. It will build a Windows
-# installer once the backend has been ported to TypeScript + Prisma + SQLite
-# and the Electron wrapper is added at /electron.
+# Builds the WARYA Windows installer (.exe) using electron-builder and
+# attaches it to a GitHub Release.
 #
 # Triggers:
-#   - Manually from the Actions tab (workflow_dispatch)
-#   - On semver tag push: v1.0.0, v2.1.3, ...
+#   - Manually from the Actions tab (workflow_dispatch) — produces an artifact
+#   - On semver tag push: v1.0.0, v2.1.3, ... — also publishes a GitHub Release
+#
+# Code signing (recommended to avoid Windows SmartScreen warnings):
+#   Add the following repository SECRETS:
+#     WIN_CSC_LINK              base64-encoded .pfx certificate file
+#     WIN_CSC_KEY_PASSWORD      certificate password
+#   When both are present, electron-builder signs the installer automatically.
+#   When absent, the build still succeeds but the .exe is unsigned (users see
+#   a "Windows protected your PC" prompt on first launch).
+#
+# Custom target URL:
+#   By default the wrapper loads the URL set in electron/src/config.js.
+#   You can override per-build by passing `warya_url` to the manual dispatch.
 
 on:
   workflow_dispatch:
     inputs:
+      warya_url:
+        description: "URL WARYA cible (laisser vide pour utiliser config.js)"
+        required: false
+        default: ""
       release_notes:
-        description: "Notes de version"
+        description: "Notes de version (optionnel)"
         required: false
         default: ""
   push:
@@ -23,32 +38,46 @@ jobs:
   build-windows:
     name: Build .exe installer
     runs-on: windows-latest
-    if: ${{ hashFiles('electron/package.json') != '' }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: yarn
+          cache-dependency-path: electron/yarn.lock
 
-      - name: Build frontend (React)
-        working-directory: frontend
-        run: |
-          yarn install --frozen-lockfile
-          yarn build
-        env:
-          REACT_APP_BACKEND_URL: "http://localhost:8001"
-          CI: "false"
-
-      - name: Build Electron app
+      - name: Install Electron dependencies
         working-directory: electron
-        run: |
-          yarn install --frozen-lockfile
-          yarn build:win
+        run: yarn install --frozen-lockfile
+
+      - name: Decode signing certificate (if provided)
+        if: ${{ env.WIN_CSC_LINK_B64 != '' }}
+        shell: pwsh
         env:
+          WIN_CSC_LINK_B64: ${{ secrets.WIN_CSC_LINK }}
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\warya-cert.pfx", [Convert]::FromBase64String($env:WIN_CSC_LINK_B64))
+          echo "WIN_CSC_LINK=$env:RUNNER_TEMP\warya-cert.pfx" >> $env:GITHUB_ENV
+
+      - name: Build Windows installer
+        working-directory: electron
+        shell: pwsh
+        env:
+          WARYA_URL: ${{ github.event.inputs.warya_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signing (set only if certificate provided)
+          CSC_LINK: ${{ env.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: yarn build:win
+
+      - name: List build output
+        working-directory: electron/dist
+        shell: pwsh
+        run: Get-ChildItem -Recurse | Select-Object FullName, Length
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -67,16 +96,11 @@ jobs:
           files: |
             electron/dist/*.exe
             electron/dist/latest.yml
-          body: ${{ github.event.inputs.release_notes }}
+          body: |
+            **WARYA Windows installer**
+
+            Téléchargez `WARYA-Setup-*.exe` et lancez-le sur votre poste Windows pour installer la caisse tactile.
+
+            ${{ github.event.inputs.release_notes }}
           draft: false
           prerelease: false
-
-  notify-stub:
-    name: Stub notice (no electron/ yet)
-    runs-on: ubuntu-latest
-    if: ${{ hashFiles('electron/package.json') == '' }}
-    steps:
-      - run: |
-          echo "::warning::Le dossier electron/ n'existe pas encore."
-          echo "::warning::Migration V2 (TypeScript + Prisma + SQLite + Electron) requise avant build."
-          echo "::warning::Voir docs/V2-MIGRATION.md (à venir) pour le plan détaillé."

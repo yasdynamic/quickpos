@@ -79,6 +79,14 @@ Admin / Manager / Serveur — permissions personnalisables (matrice par profil)
 - `GET /api/permissions/catalog`
 - `GET/PUT /api/settings` (currency, smtp, print, loyalty, role_permissions)
 
+### Distribution desktop (Feb 2026)
+- **Wrapper Electron Windows** : dossier `/app/electron/` (Electron 31 + electron-builder 24 + NSIS)
+- Charge l'URL WARYA (configurable via `electron/src/config.js` ou env `WARYA_URL`)
+- Permissions WebUSB autorisées automatiquement (imprimante thermique ESC/POS)
+- Workflow GitHub Actions `electron-windows.yml` : build manuel + sur tag `v*.*.*`
+- Signature de code conditionnelle (secrets `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`)
+- Icône WARYA multi-tailles (16/24/32/48/64/128/256) générée depuis `frontend/public/assets/warya-logo.png`
+
 ## Backlog
 ### P1
 - Settings UI "Profils & Permissions" (matrice rendant `role_permissions`)

@@ -83,24 +83,44 @@ warya/
 │   │   ├── context/               # Auth, Settings, Printer, License
 │   │   └── lib/escpos.js
 │   └── public/brand/              # Logo WARYA + icônes PWA
-└── .github/workflows/             # CI + build Windows (V2)
+├── electron/                       # Wrapper Windows (.exe installer)
+│   ├── src/                        # main.js, preload.js, config.js
+│   └── build/icon.ico              # Icône Windows multi-tailles
+└── .github/workflows/             # CI + build .exe Windows
 ```
+
+## 💻 Installation Windows (`.exe`)
+
+WARYA est disponible en **installateur Windows** packagé via Electron + NSIS :
+
+1. Va sur **[Releases](https://github.com/yasdynamic/quickpos/releases)** du dépôt
+2. Télécharge `WARYA-Setup-x.y.z.exe`
+3. Exécute → raccourci bureau créé automatiquement → lance WARYA
+
+L'installateur :
+- Permet de choisir le dossier d'installation
+- Crée des raccourcis bureau + menu Démarrer
+- Embarque l'icône WARYA et les permissions WebUSB (imprimante thermique)
+- Désinstallation propre via le panneau de configuration
+
+Pour builder ou releaser : voir [`electron/README.md`](./electron/README.md).
 
 ## 🔑 Identifiants de démo
 
 | Rôle | Nom | PIN |
 |---|---|---|
 | Admin | Admin | `000000` |
-| Serveur | Sophie | `1111` |
-| Serveur | Marc | `2222` |
+| Serveur | Sophie | `111111` |
+| Serveur | Marc | `222222` |
 
 ## 🛣️ Roadmap
 
 | Phase | État |
 |---|---|
 | V1 — Web React+FastAPI | ✅ Livrée |
-| Split bill · JWT auth · Logo imprimé ticket | 🚧 P1 |
-| V2 — Electron + SQLite one-click installer Windows | 📋 Vision |
+| Wrapper Electron Windows (.exe signé via GitHub Actions) | ✅ Livré |
+| Split bill · JWT auth | 🚧 P1 |
+| V2 — Electron + SQLite offline complet | 📋 Vision |
 | Mobile Money · BCEAO · Android · Multi-magasins | 📋 Vision |
 
 ## 📜 Licence
