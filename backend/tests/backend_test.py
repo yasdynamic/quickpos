@@ -205,3 +205,75 @@ class TestXZReports:
     def test_no_open_session_after_close(self, s):
         cur = s.get(f"{API}/cash-sessions/current").json()
         assert cur is None
+
+
+# ── Settings / Currency ────────────────────────────────────────────────────
+DEFAULT_EUR = {"code": "EUR", "symbol": "€", "decimals": 2, "position": "after"}
+
+
+class TestSettingsCurrency:
+    def test_get_settings_default_eur(self, s):
+        # Ensure baseline starts at EUR (idempotent reset before reading)
+        s.put(f"{API}/settings", json={"currency": DEFAULT_EUR})
+        r = s.get(f"{API}/settings")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "currency" in body
+        c = body["currency"]
+        assert c["code"] == "EUR"
+        assert c["symbol"] == "€"
+        assert c["decimals"] == 2
+        assert c["position"] == "after"
+
+    def test_put_settings_to_fcfa_and_persisted(self, s):
+        fcfa = {"code": "XOF", "symbol": "FCFA", "decimals": 0, "position": "after"}
+        r = s.put(f"{API}/settings", json={"currency": fcfa})
+        assert r.status_code == 200, r.text
+        assert r.json()["currency"] == fcfa
+        # GET returns the same
+        r2 = s.get(f"{API}/settings")
+        assert r2.status_code == 200
+        assert r2.json()["currency"] == fcfa
+
+    def test_put_decimals_out_of_range_422(self, s):
+        bad = {"code": "EUR", "symbol": "€", "decimals": 10, "position": "after"}
+        r = s.put(f"{API}/settings", json={"currency": bad})
+        assert r.status_code == 422, r.text
+
+    def test_put_invalid_position_422(self, s):
+        bad = {"code": "EUR", "symbol": "€", "decimals": 2, "position": "middle"}
+        r = s.put(f"{API}/settings", json={"currency": bad})
+        assert r.status_code == 422
+
+    def test_daily_report_html_uses_fcfa(self, s):
+        # Set FCFA
+        fcfa = {"code": "XOF", "symbol": "FCFA", "decimals": 0, "position": "after"}
+        s.put(f"{API}/settings", json={"currency": fcfa})
+        # Inspect HTML by calling internal builder (no email send required)
+        from backend import server  # type: ignore
+        import asyncio
+        currency = asyncio.run(server._get_currency())
+        assert currency["symbol"] == "FCFA"
+        data = {
+            "date": "2026-01-01",
+            "by_payment": {"cash": 1234.5},
+            "by_category": [{"category": "Bar", "revenue": 1234.5}],
+            "by_server": [{"server": "Sophie", "revenue": 1234.5}],
+            "top_products": [{"name": "Café", "qty": 3, "revenue": 1234.5}],
+            "total_revenue": 1234.5,
+            "cash_difference": 0.0,
+            "opening_cash": 100,
+            "expected_cash": 1334.5,
+        }
+        html_daily = server._build_daily_html(data, currency)
+        assert "FCFA" in html_daily
+        assert "€" not in html_daily
+        html_monthly = server._build_monthly_html({**data, "year": 2026, "month": 1}, currency)
+        assert "FCFA" in html_monthly
+        assert "€" not in html_monthly
+
+    def test_reset_to_eur(self, s):
+        # restore EUR at the end so other suites stay green
+        r = s.put(f"{API}/settings", json={"currency": DEFAULT_EUR})
+        assert r.status_code == 200
+        assert r.json()["currency"]["code"] == "EUR"

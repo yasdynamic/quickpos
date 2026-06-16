@@ -978,7 +978,8 @@ async def close_session(session_id: str, payload: CloseSessionRequest):
     data["cash_difference"] = diff
     data["report_type"] = "Z"
 
-    html = _build_z_html(data)
+    currency = await _get_currency()
+    html = _build_z_html(data, currency)
     recipient = payload.recipient_email or REPORT_EMAIL
     email_result = await _maybe_send_email(
         recipient, f"QuickPOS · Rapport Z {closed_at[:10]}", html
@@ -1115,8 +1116,31 @@ async def x_report(session_id: Optional[str] = None):
 
 
 # --- Email ---------------------------------------------------------------
+def _fmt_money(value: float, currency: Optional[dict] = None) -> str:
+    c = currency or {"symbol": "€", "decimals": 2, "position": "after"}
+    decimals = int(c.get("decimals", 2))
+    fixed = f"{value:,.{decimals}f}"
+    # French format: thousand=space, decimal=comma
+    int_part, _, dec_part = fixed.partition(".")
+    int_part = int_part.replace(",", " ")
+    number = f"{int_part},{dec_part}" if decimals > 0 else int_part
+    symbol = c.get("symbol", "€")
+    return f"{symbol} {number}" if c.get("position") == "before" else f"{number} {symbol}"
+
+
+# Compat: keep old name for any caller; default to EUR
 def _fmt_eur(value: float) -> str:
-    return f"{value:,.2f} €".replace(",", " ").replace(".", ",")
+    return _fmt_money(value)
+
+
+async def _get_currency() -> dict:
+    doc = await db.settings.find_one({"_id": "config"}, {"_id": 0})
+    return (doc or {}).get("currency") or {
+        "code": "EUR",
+        "symbol": "€",
+        "decimals": 2,
+        "position": "after",
+    }
 
 
 def _build_table_rows(rows, cols=2):
@@ -1128,17 +1152,19 @@ def _build_table_rows(rows, cols=2):
     ) or f"<tr><td colspan='{cols}' style='padding:8px;color:#9CA3AF'>—</td></tr>"
 
 
-def _build_z_html(data: dict) -> str:
+def _build_z_html(data: dict, currency: Optional[dict] = None) -> str:
+    def fm(v: float) -> str:
+        return _fmt_money(v, currency)
     pay_rows = [
-        (PAYMENT_LABELS.get(k, k), _fmt_eur(v))
+        (PAYMENT_LABELS.get(k, k), fm(v))
         for k, v in data.get("by_payment", {}).items()
     ]
-    cat_rows = [(c["category"], _fmt_eur(c["revenue"])) for c in data.get("by_category", [])]
-    srv_rows = [(s["server"], _fmt_eur(s["revenue"])) for s in data.get("by_server", [])]
+    cat_rows = [(c["category"], fm(c["revenue"])) for c in data.get("by_category", [])]
+    srv_rows = [(s["server"], fm(s["revenue"])) for s in data.get("by_server", [])]
     top_rows_html = "".join(
         f"<tr><td style='padding:8px;border-bottom:1px solid #eee'>{p['name']}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{p['qty']}</td>"
-        f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{_fmt_eur(p['revenue'])}</td></tr>"
+        f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{fm(p['revenue'])}</td></tr>"
         for p in data.get("top_products", [])[:8]
     ) or "<tr><td colspan='3' style='padding:8px'>—</td></tr>"
 
@@ -1155,23 +1181,23 @@ def _build_z_html(data: dict) -> str:
 
       <table style='width:100%;border-collapse:collapse;margin-bottom:16px'>
         <tr><td style='padding:12px;background:#F4F6FB;font-weight:bold'>Chiffre d'affaires</td>
-            <td style='padding:12px;background:#F4F6FB;text-align:right;font-weight:bold;color:#002FA7;font-size:18px'>{_fmt_eur(data.get('total_revenue', 0))}</td></tr>
+            <td style='padding:12px;background:#F4F6FB;text-align:right;font-weight:bold;color:#002FA7;font-size:18px'>{fm(data.get('total_revenue', 0))}</td></tr>
         <tr><td style='padding:12px'>Nombre de ventes</td>
             <td style='padding:12px;text-align:right'>{data.get('num_sales', 0)}</td></tr>
         <tr><td style='padding:12px;background:#F4F6FB'>Panier moyen</td>
-            <td style='padding:12px;background:#F4F6FB;text-align:right'>{_fmt_eur(data.get('avg_ticket', 0))}</td></tr>
+            <td style='padding:12px;background:#F4F6FB;text-align:right'>{fm(data.get('avg_ticket', 0))}</td></tr>
       </table>
 
       <h2 style='margin-top:24px;color:#0A0A0A;font-size:16px'>Caisse</h2>
       <table style='width:100%;border-collapse:collapse'>
         <tr><td style='padding:8px;border-bottom:1px solid #eee'>Fond de caisse initial</td>
-            <td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{_fmt_eur(data.get('opening_cash', 0))}</td></tr>
+            <td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{fm(data.get('opening_cash', 0))}</td></tr>
         <tr><td style='padding:8px;border-bottom:1px solid #eee'>Espèces attendues</td>
-            <td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{_fmt_eur(data.get('expected_cash', 0))}</td></tr>
+            <td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{fm(data.get('expected_cash', 0))}</td></tr>
         <tr><td style='padding:8px;border-bottom:1px solid #eee'>Espèces comptées</td>
-            <td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{_fmt_eur(data.get('closing_cash_declared', 0))}</td></tr>
+            <td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>{fm(data.get('closing_cash_declared', 0))}</td></tr>
         <tr><td style='padding:8px;font-weight:bold'>Écart de caisse</td>
-            <td style='padding:8px;text-align:right;font-weight:bold;color:{diff_color}'>{_fmt_eur(diff)}</td></tr>
+            <td style='padding:8px;text-align:right;font-weight:bold;color:{diff_color}'>{fm(diff)}</td></tr>
       </table>
 
       <h2 style='margin-top:24px;color:#0A0A0A;font-size:16px'>Par moyen de paiement</h2>
@@ -1195,24 +1221,25 @@ def _build_z_html(data: dict) -> str:
     """
 
 
-def _build_daily_html(data: dict) -> str:
-    """Compat — used by daily/send endpoint."""
-    return _build_z_html({**data, "report_type": "Daily"})
+def _build_daily_html(data: dict, currency: Optional[dict] = None) -> str:
+    return _build_z_html({**data, "report_type": "Daily"}, currency)
 
 
-def _build_monthly_html(data: dict) -> str:
-    day_rows = [(d["day"], _fmt_eur(d["revenue"])) for d in data.get("by_day", [])]
+def _build_monthly_html(data: dict, currency: Optional[dict] = None) -> str:
+    def fm(v: float) -> str:
+        return _fmt_money(v, currency)
+    day_rows = [(d["day"], fm(d["revenue"])) for d in data.get("by_day", [])]
     return f"""
     <div style='font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#0A0A0A'>
       <h1 style='color:#002FA7'>État mensuel</h1>
       <p style='color:#4B5563'>{data.get('month', 0):02d}/{data.get('year', 0)}</p>
       <table style='width:100%;border-collapse:collapse;margin-top:16px'>
         <tr><td style='padding:12px;background:#F4F6FB;font-weight:bold'>Chiffre d'affaires</td>
-            <td style='padding:12px;background:#F4F6FB;text-align:right;font-weight:bold;color:#002FA7'>{_fmt_eur(data.get('total_revenue', 0))}</td></tr>
+            <td style='padding:12px;background:#F4F6FB;text-align:right;font-weight:bold;color:#002FA7'>{fm(data.get('total_revenue', 0))}</td></tr>
         <tr><td style='padding:12px'>Nombre de ventes</td>
             <td style='padding:12px;text-align:right'>{data.get('num_sales', 0)}</td></tr>
         <tr><td style='padding:12px;background:#F4F6FB'>Panier moyen</td>
-            <td style='padding:12px;background:#F4F6FB;text-align:right'>{_fmt_eur(data.get('avg_ticket', 0))}</td></tr>
+            <td style='padding:12px;background:#F4F6FB;text-align:right'>{fm(data.get('avg_ticket', 0))}</td></tr>
       </table>
       <h2 style='margin-top:24px'>Détail journalier</h2>
       <table style='width:100%;border-collapse:collapse'>{_build_table_rows(day_rows)}</table>
@@ -1241,7 +1268,8 @@ async def send_daily(payload: SendReportRequest):
     start, end = day_bounds(d)
     data = await _aggregate_range(start, end)
     data["date"] = d.isoformat()
-    html = _build_daily_html(data)
+    currency = await _get_currency()
+    html = _build_daily_html(data, currency)
     recipient = payload.recipient_email or REPORT_EMAIL
     result = await _maybe_send_email(
         recipient, f"QuickPOS · Clôture {d.isoformat()}", html
@@ -1263,7 +1291,8 @@ async def send_monthly(payload: SendMonthlyRequest):
     data = await _aggregate_range(start, end)
     data["year"] = payload.year
     data["month"] = payload.month
-    html = _build_monthly_html(data)
+    currency = await _get_currency()
+    html = _build_monthly_html(data, currency)
     recipient = payload.recipient_email or REPORT_EMAIL
     result = await _maybe_send_email(
         recipient, f"QuickPOS · Rapport mensuel {payload.month:02d}/{payload.year}", html
@@ -1288,12 +1317,43 @@ async def list_reports(report_type: Optional[str] = None, limit: int = 30):
 
 @api_router.get("/settings")
 async def get_settings():
+    doc = await db.settings.find_one({"_id": "config"}, {"_id": 0})
+    currency = (doc or {}).get("currency") or {
+        "code": "EUR",
+        "symbol": "€",
+        "decimals": 2,
+        "position": "after",
+    }
     return {
         "report_email": REPORT_EMAIL,
         "sender_email": SENDER_EMAIL,
         "email_configured": bool(RESEND_API_KEY),
-        "currency": "EUR",
+        "currency": currency,
     }
+
+
+class CurrencyConfig(BaseModel):
+    code: str
+    symbol: str
+    decimals: int = Field(ge=0, le=4)
+    position: Literal["before", "after"] = "after"
+
+
+class SettingsUpdate(BaseModel):
+    currency: Optional[CurrencyConfig] = None
+
+
+@api_router.put("/settings")
+async def update_settings(payload: SettingsUpdate):
+    update: dict = {}
+    if payload.currency:
+        update["currency"] = payload.currency.model_dump()
+    if not update:
+        raise HTTPException(status_code=400, detail="Aucune modification fournie")
+    await db.settings.update_one(
+        {"_id": "config"}, {"$set": update}, upsert=True
+    )
+    return await get_settings()
 
 
 @api_router.get("/")

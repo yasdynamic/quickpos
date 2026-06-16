@@ -1,0 +1,34 @@
+{
+  "summary": "Full regression for multi-currency feature. Backend 22/22 pytest passing including 6 new tests for /api/settings (GET default EUR; PUT XOF persists; decimals=10 → 422; invalid position → 422; _build_daily_html + _build_monthly_html use FCFA when currency=XOF and contain no '€'; reset to EUR). All 16 previous tests still pass (auth, zones/tables, cash session open/current/refuse-2nd, order flow with modifiers + send-kitchen + pay-cash, table state transitions, cancel, X report expected_cash=116.5, Z close + email skipped, no open session after close). Frontend e2e: PIN admin 000000 → / → nav-settings → /parametres → initial preview '1 234,50 €' → currency-preset-XOF preview becomes '1 235 FCFA' (1234.5 with 0 decimals rounds, no comma) → currency-preset-USD preview becomes '$ 1 234,50' (symbol before, French separators) → save XOF → toast 'Devise mise à jour' → SPA navigate to /vente-rapide → prices now show 'X FCFA' (no € present anywhere) → back to /parametres → EUR preset + manual currency-decimals=0 → preview '1 235 €' (no comma) → save → vente-rapide shows integer EUR prices (no ',50 €') → restore EUR with default 2 decimals → SPA nav back to /vente-rapide auto re-renders with '1,50 €', '12,50 €' etc WITHOUT manual refresh thanks to SettingsProvider key remount. Final backend state restored to EUR/€/2/after for downstream tests.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1377 lines (was 1318) — still over the 700-line guideline. Settings + currency helpers (_fmt_money, _get_currency, CurrencyConfig, SettingsUpdate, GET/PUT /settings) should live in a routes/settings.py + services/currency.py module pair.",
+    "GET /api/settings exposes RESEND_API_KEY presence + sender + report email without any auth check — same kiosk-MVP caveat as previous review, but now /api/settings PUT also has no auth so any client can change the currency. Consider gating behind admin role once a token is added.",
+    "SettingsPage.jsx imports formatCurrency from @/lib/api but never uses it (the `void formatCurrency` trick silences the warning). Cleaner to drop the import.",
+    "lib/api.js CURRENCY is a module-level mutable singleton; works for the SPA but means a stale formatCurrency() exported value can be captured by tests or memoised selectors. The SettingsProvider's `key` remount mitigates this in practice — but a SettingsContext-driven hook (useFormatCurrency) would be more idiomatic React.",
+    "CurrencyConfig has no max length / charset validation on `code` and `symbol` (user could send 200-char strings). Add max_length=8 / max_length=8 to harden the PUT endpoint.",
+    "formatPreview in SettingsPage.jsx duplicates the formatting logic from lib/api.js (separator rules, position handling). Extract to a single pure helper `formatWithCurrency(value, currency)` and reuse from both."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/iteration_3.json"
+  ],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100% (login, nav-settings, currency-preview, presets EUR/XOF/USD, custom decimals=0, save-currency toast, SPA re-render to /vente-rapide showing FCFA/€ accordingly, restore EUR)"},
+  "test_credentials": "PIN admin=000000 from /app/memory/test_credentials.md",
+  "seed_data_creation": "None added beyond previous iteration. settings doc {_id:'config'} now persisted in MongoDB (final value: EUR/€/2/after).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run backend: REACT_APP_BACKEND_URL=<url> pytest /app/backend/tests/backend_test.py -v. The TestSettingsCurrency class always resets currency back to EUR in its last test so other suites stay green; if you add new tests that touch currency, follow the same pattern. Frontend testids confirmed: nav-settings, currency-preview, currency-preset-{EUR|XOF|XAF|USD|GBP|CHF|MAD|TND|CAD}, currency-code, currency-symbol, currency-decimals, currency-position, save-currency. Success toast text = 'Devise mise à jour'. The SettingsProvider wraps AuthProvider with display:contents and a key on currency.code+symbol → switching currency triggers a child-tree remount so /vente-rapide, /, /historique etc. all re-format prices without a hard reload. Backend exposes /api/settings without auth — assume only admin will hit it in production; this matches the existing kiosk PIN model.",
+  "rca of the issue": "No bugs found. Multi-currency feature is fully wired end-to-end (DB persistence in settings collection → /api/settings → SettingsProvider → setCurrency() mutates lib/api.js singleton → key remount cascades formatCurrency() refresh across the entire SPA → backend report HTML builders accept currency dict and produce localized symbols)."
+}

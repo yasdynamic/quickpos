@@ -9,6 +9,7 @@ import {
   Zap,
   Banknote,
   Zap as Bolt,
+  Settings as Cog,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -20,6 +21,7 @@ const NAV = [
   { to: "/dashboard", label: "Tableau de bord", icon: BarChart3, testid: "nav-dashboard" },
   { to: "/historique", label: "Historique", icon: History, testid: "nav-history" },
   { to: "/rapports", label: "Rapports", icon: Mail, testid: "nav-reports" },
+  { to: "/parametres", label: "Paramètres", icon: Cog, testid: "nav-settings" },
 ];
 
 export default function AppShell({ children }) {
