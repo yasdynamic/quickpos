@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 # --- These will be set by server.py once it imports this module
@@ -191,14 +191,23 @@ def register_routes():
         }
 
     @api_router.post("/journal/repair")
-    async def journal_repair(year: Optional[int] = None, confirm: bool = False):
+    async def journal_repair(
+        year: Optional[int] = None,
+        confirm: bool = False,
+        x_user_id: Optional[str] = Header(None),
+    ):
         """Repair a broken journal chain (gap in sequence or hash mismatch).
 
         DESTRUCTIVE: re-sequences and re-hashes existing entries in
         `signed_at` order. Intended for dev/test environments where partial
         failures or manual edits broke the chain. A final REPAIR entry is
-        appended documenting the operation.
+        appended documenting the operation. Admin-only.
         """
+        if not x_user_id:
+            raise HTTPException(401, "Authentification requise")
+        u = await db.users.find_one({"id": x_user_id}, {"_id": 0, "pin": 0})
+        if not u or u.get("role") != "admin":
+            raise HTTPException(403, "Admin requis pour réparer le journal NF525")
         if not confirm:
             raise HTTPException(
                 400,

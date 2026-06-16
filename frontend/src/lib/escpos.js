@@ -70,6 +70,9 @@ export const cmd = {
 // of 8 by padding with white pixels on the right.
 export const buildRasterImage = (imgData, { threshold = 180, mode = 0 } = {}) => {
   const { width, height, data } = imgData;
+  // ESC/POS GS v 0 expects width to be a whole number of bytes (groups of 8
+  // horizontal pixels). Round UP and pad rightmost pixels with white so any
+  // caller-supplied width never produces a corrupt last column.
   const bytesPerRow = Math.ceil(width / 8);
   const bitmap = new Uint8Array(bytesPerRow * height);
   for (let y = 0; y < height; y++) {
@@ -88,6 +91,7 @@ export const buildRasterImage = (imgData, { threshold = 180, mode = 0 } = {}) =>
         bitmap[byteIdx] |= 0x80 >> (x & 7);
       }
     }
+    // x in [width, paddedWidth) stays 0 (white) -> safe right padding
   }
   const xL = bytesPerRow & 0xff;
   const xH = (bytesPerRow >> 8) & 0xff;

@@ -55,6 +55,16 @@ Admin / Manager / Serveur — permissions personnalisables (matrice par profil)
 - Activation par glisser-déposer du .lic, mode restreint à expiration (90j/30j/0j warnings)
 - Sauvegarde ZIP locale (19 collections JSON + manifest)
 - Permissions par profil (matrice configurable : `role_permissions` dans settings + catalogue `/api/permissions/catalog`)
+- **Permissions appliquées côté API** : `require_permission(perm_key)` gating sur `POST /api/refunds` (`refund.create`) et `POST /api/orders/{id}/discount` (`discount.apply`) — défense en profondeur (Feb 2026)
+- **Réparation NF525** : `POST /api/journal/repair` (admin only, `?confirm=true`) — reconstruit la chaîne en ordre chronologique, ajoute une entrée PARAM/journal_repair. UI : bouton "Réparer la chaîne" dans Paramètres → Audit lorsqu'une vérification détecte une corruption. (Feb 2026)
+- **`append_journal` rollback de séquence** : si l'insertion échoue après réservation du `seq`, le compteur est décrémenté pour éviter les gaps permanents. (Feb 2026)
+
+### Impression (mise à jour Feb 2026)
+- ESC/POS WebUSB direct (ticket + journal Z + tiroir-caisse)
+- Identité point de vente paramétrable : nom, adresse, téléphone, email, NIF/TVA, site web, message de pied
+- **Logo WARYA raster ESC/POS** (`GS v 0`) : `lib/escpos.js` → `buildRasterImage` + `loadLogoBytes` (cache en mémoire), max 384px (80mm) ou 256px (58mm), monochrome avec seuil 180
+- **ReceiptModal UI** : affiche le logo + nom commerce + adresse + téléphone + email + site + NIF
+- Logo par défaut : `/assets/warya-logo-print.png` (raster) + `/assets/warya-logo-ui.png` (preview)
 
 ## API endpoints clés
 - `POST /api/auth/login` (name + pin, case-insensitive)
@@ -73,9 +83,11 @@ Admin / Manager / Serveur — permissions personnalisables (matrice par profil)
 ### P1
 - Settings UI "Profils & Permissions" (matrice rendant `role_permissions`)
 - Split bill (partage d'addition)
-- Menus / Formules (combos)
+- ✅ ~~Menus / Formules (combos)~~ (livré)
 - JWT auth + protection des routes admin
-- Logo imprimé sur ticket ESC/POS (raster GS v 0)
+- ✅ ~~Logo imprimé sur ticket ESC/POS (raster GS v 0)~~ (livré Feb 2026)
+- ✅ ~~Permissions API-side pour `refund.create` & `discount.apply`~~ (livré Feb 2026)
+- ✅ ~~Réparation chaîne NF525 (`/journal/repair` + rollback append_journal)~~ (livré Feb 2026)
 
 ### P2
 - Impression du ticket d'avoir physique
@@ -96,6 +108,6 @@ Admin / Manager / Serveur — permissions personnalisables (matrice par profil)
 - Multi-magasins, Mobile Money, BCEAO, Android
 
 ## Identifiants test
-- Admin (PIN 000000) / Sophie (1111) / Marc (2222) — login = name + PIN
+- Admin (PIN 000000) / Sophie (PIN 111111) / Marc (PIN 222222) — login = name + PIN
 - Empreinte serveur actuelle : `POS-D79C-CE21-621B`
 - Démo licence : `/tmp/quickpos.lic` (peut être régénérée via `python3 /app/backend/tools/license_gen.py --years 1`)
