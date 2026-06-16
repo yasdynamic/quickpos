@@ -1398,9 +1398,9 @@ async def send_monthly(payload: SendMonthlyRequest):
     data["month"] = payload.month
     currency = await _get_currency()
     html = _build_monthly_html(data, currency)
-    recipient = payload.recipient_email or REPORT_EMAIL
+    recipients = await _resolve_recipients(payload.recipient_email)
     result = await _maybe_send_email(
-        recipient, f"QuickPOS · Rapport mensuel {payload.month:02d}/{payload.year}", html
+        recipients, f"QuickPOS · Rapport mensuel {payload.month:02d}/{payload.year}", html
     )
     return {"report": data, "email": result}
 
