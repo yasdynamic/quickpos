@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ChefHat, Minus, Plus, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, ChefHat, Minus, Percent, Plus, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
