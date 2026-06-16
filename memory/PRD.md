@@ -3,91 +3,80 @@
 ## Original Problem Statement
 > Une application de gestion de point de vente très légère avec une interface tactile et qui génère des états quotidiens et mensuels automatiquement envoyés par mail à la clôture de la journée.
 
-Évolution: clone fonctionnel "Clyo Systems" en PWA (kiosque), impression directe ESC/POS via WebUSB, RBAC PIN, conformité NF525 (hash blockchain), fidélité client, TVA multi-taux, remises, multi-devises, envoi automatique des Z par email.
+**Vision étendue (Feb 2026)** : caisse moderne inspirée de Clyo, conçue pour les PME africaines, install ultra-simple, archi web React + FastAPI + Mongo (Electron + SQLite envisagé en V2).
 
 ## Architecture
-- **Backend**: FastAPI + Motor (Mongo async) + Resend SDK + smtplib
-- **Frontend**: React 19 + react-router 7 + Recharts + Sonner + Tailwind + Shadcn
-- **Design**: Swiss / High-Contrast, Manrope + IBM Plex Sans + JetBrains Mono, bleu #002FA7
-- **Hardware**: WebUSB → impression directe ESC/POS 80mm + ouverture tiroir-caisse
+- **Backend** : FastAPI + Motor (Mongo async) + Resend SDK + smtplib + zipfile (backup)
+- **Frontend** : React 19 + react-router 7 + Recharts + Sonner + Tailwind + Shadcn
+- **Hardware** : WebUSB ESC/POS + ouverture tiroir
+- **Compliance** : NF525 (journal chainé), TVA multi-taux
 
 ## Personas
-- **Admin / Gérant**: paramètres (devise, utilisateurs, SMTP, destinataires email verrouillés), catalogue, rapports
-- **Serveur**: ouvre une session, gère les tables, encaisse, envoie en cuisine
-- **Patron**: reçoit les Z automatiques à la clôture
+- **Admin** : paramètres, catalogue, stock, fournisseurs, rapports, sauvegarde
+- **Manager** : catalogue, stock, mouvements
+- **Serveur** : ouvre session, gère tables, encaisse
+- **Patron** : reçoit les Z automatiques par email
 
 ## Implemented Features
+
 ### v1 — POS de base
-- Auth PIN, catalogue (catégories, produits, stock), POS tactile, ticket, dashboard, historique, rapports daily/monthly Resend
+- Auth PIN, catalogue, POS tactile, ticket, rapports auto par email
 
-### v2 — Clyo refactor
-- Multi-serveurs (admin/manager/server), Zones + tables + plan de salle, Commande par table, Modificateurs
-- Sessions de caisse (ouverture/clôture), Rapports X (intermédiaire) et Z (clôture + email)
+### v2 — Clyo flow
+- Tables/zones, commandes, modificateurs, sessions X/Z
 
-### v3 — Multi-devises
-- Devise paramétrable (EUR/FCFA/USD/GBP/CHF/MAD/TND/CAD) appliquée partout
+### v3-v5 — Multi-devises, NF525, fidélité, TVA, WebUSB, PWA
 
-### v4 — Paramètres avancés
-- CRUD utilisateurs, SMTP custom (Gmail/Outlook/OVH/Mailgun/SendGrid), bouton "tester l'envoi"
+### v6 — Hub Caisse strict
+- Page d'accueil = Hub avec 4 actions tactiles
+- Session obligatoire avant toute vente (backend + SessionGuard)
+- Réouverture journée même jour (tous rôles)
+- Clôture bloquée si ventes en attente
+- Mini-dashboard live (CA, ventes, panier moyen, top produit, top 3)
 
-### v5 — Conformité & fidélité
-- NF525: journal immuable chainé (hash + previous_hash), endpoint /api/nf525/verify
-- Fidélité client par téléphone (points configurables)
-- TVA multi-taux par produit + rapport TVA
-- Remise globale au panier (% ou montant fixe)
-- Impression ESC/POS WebUSB directe (ticket + journal Z + tiroir-caisse)
-- PWA installable
+### v7 — Ventes en attente comptoir (POS direct)
+- Bouton "Attente" dans POSPage avec label optionnel
+- Section "Ventes en attente · Comptoir" dans TablesPage
+- Compatible avec le blocage de clôture Z
 
-### v6 — Hub Caisse strict (16/02/2026)
-- **Page d'accueil = "Caisse Hub"** après login, 4 boutons tactiles:
-  1. Vente directe (`/vente-rapide`)
-  2. Ventes en attente (`/tables`, badge nombre de commandes)
-  3. Bande de contrôle (état X, `/session?view=x`)
-  4. Clôture de la journée (état Z, `/session?view=z`)
-- **Ouverture de caisse obligatoire** avant toute vente — backend rejette `POST /sales` et `POST /orders/{id}/pay` avec 400 si aucune session ouverte
-- **SessionGuard** côté frontend redirige `/tables`, `/vente-rapide`, `/commande/:id` vers le Hub si pas de session
-- **Réouverture d'une journée**: si la session a été clôturée le même jour calendaire (UTC), bouton "Rouvrir la journée" — autorisée pour tous les rôles
-- **Clôture bloquée tant qu'il reste des ventes en attente**: backend rejette `POST /cash-sessions/{id}/close` si `orders.status=open` existent; frontend affiche bordure ambrée + texte "Bloqué · N vente(s) en attente" sur le Hub, et désactive le bouton de clôture dans SessionPage avec un appel à l'action "Voir les ventes en attente"
-- **Destinataires email Z verrouillés**: seul l'admin peut écraser la liste via `recipient_email` à la clôture
+### v8 — V1 Phase A (16/02/2026) — Vision PME africaine
+- **Code-barres** : champs `barcode`, `sku` sur produits ; recherche/scan dans POS (Enter = ajout direct si match exact, sinon recherche partielle)
+- **Fournisseurs** : modèle Supplier + CRUD complet + page `/fournisseurs`
+- **Stock** : modèle StockMovement (in/out/adjust) + page `/stock` avec entrées, sorties, ajustement inventaire, historique par produit, seuil stock bas (`low_stock_threshold` + endpoint `/api/stock/low`)
+- **Coût d'achat & fournisseur sur produit** : `cost_price`, `supplier_id`
+- **Backup ZIP** : endpoint `GET /api/backup/export` (17 collections JSON + manifest), bouton dans Paramètres > Sauvegarde
+- NF525 étendu pour journaliser les mouvements de stock
 
-## Tests cumulatifs
-- v1: 16/16 backend
-- v2: 16/16 (full Clyo)
-- v3: 22/22 (currency)
-- v4: 13/13 (users + SMTP)
-- v5: NF525/loyalty/TVA testés
-- v6 (iter 8): 8/8 backend pytest + 100% frontend e2e (Hub + SessionGuard + reopen)
+## Backlog V1 — Phase B (prochaine session)
+- **P1** Retour produit / Avoir (avec NF525)
+- **P1** Import / Export Excel des produits (xlsx via openpyxl)
+- **P1** Inventaire complet (session de comptage avec écarts)
+- **P1** Vente au clavier numérique rapide
 
-## Tech Stack
-- Backend: FastAPI, Motor, Pydantic, Resend, smtplib, hashlib (NF525)
-- Frontend: React 19, react-router 7, Tailwind, Shadcn UI, Sonner, Lucide, Recharts
-- DB: MongoDB (motor async)
+## Backlog V2 (vision Electron)
+- **P2** Réécriture backend en TypeScript + Prisma + SQLite
+- **P2** Packaging Electron (one-click install Windows / macOS / Linux)
+- **P2** PWA enrichie (offline-first complet)
+- **P3** Multi-magasins
+- **P3** Mobile Money (Orange Money, MTN, Wave)
+- **P3** PI-SPI BCEAO + Facturation électronique
+- **P3** Application Android (React Native ou Capacitor)
 
-## DB Schema (key collections)
-- `users`: id, name, pin, role(admin/manager/server), color
-- `products`: id, name, price, category, modifiers, tva_rate, stock
-- `orders`: id, table_id, items, status(open/paid/cancelled), discount, session_id, covers
-- `sales`: id, ticket_number, items, subtotal, discount_amount, total, tva_breakdown, payment_method, session_id, hash, previous_hash
-- `cash_sessions`: id, opened_at, closed_at, opening_cash, closing_cash_declared, expected_cash, cash_difference, status
-- `customers`: id, phone, name, points
-- `settings`: currency, smtp, report_recipients, print, loyalty
+## Backlog Clyo features
+- **P1** Split bill (partage d'addition)
+- **P1** Menus / Formules (combos)
+- **P1** Auth JWT + protection routes admin
+- **P2** Imprimante cuisine séparée
+- **P2** Happy hours, CRON Z auto
+- **P2** Refactor `server.py` en routers
 
-## Backlog (priorités)
-### P1
-- Split bill (partage d'addition)
-- Menus / Formules (combos)
-- Auth: tokens JWT + protection des routes admin (`/settings`, `/users`)
-- Scheduler CRON pour clôture Z automatique à heure fixe
+## Tests cumulés
+- Iterations 1-7 : ~16-22 backend, 100% frontend e2e à chaque
+- Iteration 8 (Hub Caisse) : 8/8 backend + 100% frontend
+- v7 (holds POS) : testé manuellement end-to-end
+- v8 (V1 Phase A) : screenshots smoke + curl backend OK
 
-### P2
-- Imprimante cuisine séparée (routage ESC/POS multi-périphériques)
-- Happy hours (tarification horaire)
-- UI d'édition des modificateurs depuis Produits
-- Drag&drop pour repositionner les tables sur le plan
-- Splitter `server.py` (~1700 lignes) en routers (`routes/sales.py`, `routes/auth.py`, etc.)
-- Bande de contrôle: vue dédiée X (focus séparé de la clôture Z)
-
-## Known issues / Caveats
-- Comparaison "même jour calendaire" basée sur UTC dans backend & frontend — peut basculer à minuit UTC plutôt qu'au minuit local
-- Lint warning pré-existant dans SessionPage.jsx (`react-hooks/set-state-in-effect` sur `closeSession`) — fonctionnel mais à refactoriser
-- Resend API key actuelle est une clé de test (`re_fGRq...`)
+## Known issues
+- Lint pré-existant `react-hooks/set-state-in-effect` sur 6 fichiers (non bloquant, fonctionnel)
+- Comparaison "même jour" basée sur UTC (peut basculer à minuit UTC ≠ local)
+- Resend = clé de test

@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { CircleDollarSign, Users, Mail, Printer, ShieldCheck } from "lucide-react";
+import { CircleDollarSign, Users, Mail, Printer, ShieldCheck, HardDrive } from "lucide-react";
 import CurrencySection from "@/components/settings/CurrencySection";
 import UsersSection from "@/components/settings/UsersSection";
 import SmtpSection from "@/components/settings/SmtpSection";
 import PrintSection from "@/components/settings/PrintSection";
 import NF525Section from "@/components/settings/NF525Section";
+import BackupSection from "@/components/settings/BackupSection";
 
 const TABS = [
   { id: "currency", label: "Devise", icon: CircleDollarSign },
@@ -12,6 +13,7 @@ const TABS = [
   { id: "smtp", label: "Email SMTP", icon: Mail },
   { id: "print", label: "Impression", icon: Printer },
   { id: "nf525", label: "NF525 & Fidélité", icon: ShieldCheck },
+  { id: "backup", label: "Sauvegarde", icon: HardDrive },
 ];
 
 export default function SettingsPage() {
@@ -49,6 +51,7 @@ export default function SettingsPage() {
       {active === "smtp" && <SmtpSection />}
       {active === "print" && <PrintSection />}
       {active === "nf525" && <NF525Section />}
+      {active === "backup" && <BackupSection />}
     </div>
   );
 }

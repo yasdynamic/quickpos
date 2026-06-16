@@ -4,11 +4,23 @@ import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
 import { useSettings } from "@/context/SettingsContext";
 
-const empty = { name: "", price: "", category_id: "", stock: 0, track_stock: true };
+const empty = {
+  name: "",
+  price: "",
+  category_id: "",
+  stock: 0,
+  track_stock: true,
+  barcode: "",
+  sku: "",
+  supplier_id: "",
+  cost_price: "",
+  low_stock_threshold: 0,
+};
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [editing, setEditing] = useState(null);
   const [showProductModal, setShowProductModal] = useState(false);
   const [form, setForm] = useState(empty);
@@ -16,12 +28,14 @@ export default function ProductsPage() {
   const [catForm, setCatForm] = useState({ name: "", color: "#002FA7" });
 
   const load = async () => {
-    const [c, p] = await Promise.all([
+    const [c, p, s] = await Promise.all([
       api.get("/categories"),
       api.get("/products"),
+      api.get("/suppliers"),
     ]);
     setCategories(c.data);
     setProducts(p.data);
+    setSuppliers(s.data);
   };
 
   useEffect(() => {
@@ -41,6 +55,11 @@ export default function ProductsPage() {
       category_id: p.category_id,
       stock: p.stock,
       track_stock: p.track_stock,
+      barcode: p.barcode || "",
+      sku: p.sku || "",
+      supplier_id: p.supplier_id || "",
+      cost_price: p.cost_price ?? "",
+      low_stock_threshold: p.low_stock_threshold ?? 0,
     });
     setShowProductModal(true);
   };
@@ -54,6 +73,11 @@ export default function ProductsPage() {
       ...form,
       price: parseFloat(form.price) || 0,
       stock: parseInt(form.stock) || 0,
+      low_stock_threshold: parseInt(form.low_stock_threshold) || 0,
+      cost_price: form.cost_price === "" ? null : parseFloat(form.cost_price) || 0,
+      barcode: form.barcode?.trim() || null,
+      sku: form.sku?.trim() || null,
+      supplier_id: form.supplier_id || null,
     };
     try {
       if (editing) {
@@ -227,6 +251,7 @@ export default function ProductsPage() {
           form={form}
           setForm={setForm}
           categories={categories}
+          suppliers={suppliers}
           onClose={() => {
             setEditing(null);
             setForm(empty);
@@ -280,12 +305,12 @@ export default function ProductsPage() {
   );
 }
 
-function ProductModal({ editing, form, setForm, categories, onClose, onSave }) {
+function ProductModal({ editing, form, setForm, categories, suppliers, onClose, onSave }) {
   const { settings } = useSettings();
   const sym = settings?.currency?.symbol || "";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="product-modal">
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
         <header className="mb-6 flex items-center justify-between">
           <h3 className="text-xl font-bold">
             {editing ? "Modifier le produit" : "Nouveau produit"}
@@ -369,6 +394,72 @@ function ProductModal({ editing, form, setForm, categories, onClose, onSave }) {
             />
             <span className="text-sm">Suivre le stock</span>
           </label>
+
+          <div className="border-t border-[#E5E7EB] pt-4">
+            <p className="mb-3 text-xs uppercase tracking-[0.1em] font-bold text-slate-500">
+              Code-barres & approvisionnement
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Code-barres (EAN)</span>
+                <input
+                  data-testid="product-barcode"
+                  value={form.barcode || ""}
+                  onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                  placeholder="3017620422003"
+                  className="mt-1 w-full rounded-md border border-[#E5E7EB] px-3 py-2 font-mono text-sm outline-none focus:border-[#002FA7]"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Référence (SKU)</span>
+                <input
+                  data-testid="product-sku"
+                  value={form.sku || ""}
+                  onChange={(e) => setForm({ ...form, sku: e.target.value })}
+                  placeholder="REF-001"
+                  className="mt-1 w-full rounded-md border border-[#E5E7EB] px-3 py-2 font-mono text-sm outline-none focus:border-[#002FA7]"
+                />
+              </label>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Coût d'achat</span>
+                <input
+                  data-testid="product-cost"
+                  inputMode="decimal"
+                  value={form.cost_price ?? ""}
+                  onChange={(e) => setForm({ ...form, cost_price: e.target.value })}
+                  placeholder="0.00"
+                  className="mt-1 w-full rounded-md border border-[#E5E7EB] px-3 py-2 font-mono text-sm outline-none focus:border-[#002FA7]"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Seuil stock bas</span>
+                <input
+                  data-testid="product-low-threshold"
+                  inputMode="numeric"
+                  value={form.low_stock_threshold ?? 0}
+                  onChange={(e) => setForm({ ...form, low_stock_threshold: e.target.value })}
+                  placeholder="0"
+                  className="mt-1 w-full rounded-md border border-[#E5E7EB] px-3 py-2 font-mono text-sm outline-none focus:border-[#002FA7]"
+                />
+              </label>
+            </div>
+            <label className="mt-3 block">
+              <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Fournisseur</span>
+              <select
+                data-testid="product-supplier"
+                value={form.supplier_id || ""}
+                onChange={(e) => setForm({ ...form, supplier_id: e.target.value })}
+                className="mt-1 w-full rounded-md border border-[#E5E7EB] bg-white px-3 py-2 text-sm outline-none focus:border-[#002FA7]"
+              >
+                <option value="">— Aucun —</option>
+                {(suppliers || []).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button

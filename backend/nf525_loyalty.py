@@ -30,7 +30,7 @@ def _now_iso() -> str:
 # ------------------------------------------------------------------ NF525
 
 JournalEntryType = Literal[
-    "TICKET", "REFUND", "CANCEL", "Z", "X", "PARAM", "LOGIN", "USER"
+    "TICKET", "REFUND", "CANCEL", "Z", "X", "PARAM", "LOGIN", "USER", "STOCK"
 ]
 
 

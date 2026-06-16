@@ -16,6 +16,8 @@ import ReportsPage from "@/pages/ReportsPage";
 import SessionPage from "@/pages/SessionPage";
 import SettingsPage from "@/pages/SettingsPage";
 import CustomersPage from "@/pages/CustomersPage";
+import SuppliersPage from "@/pages/SuppliersPage";
+import StockPage from "@/pages/StockPage";
 import AppShell from "@/components/AppShell";
 import SessionGuard from "@/components/SessionGuard";
 
@@ -46,6 +48,8 @@ function App() {
                 <Route path="/rapports" element={<Protected><ReportsPage /></Protected>} />
                 <Route path="/parametres" element={<Protected><SettingsPage /></Protected>} />
                 <Route path="/clients" element={<Protected><CustomersPage /></Protected>} />
+                <Route path="/fournisseurs" element={<Protected><SuppliersPage /></Protected>} />
+                <Route path="/stock" element={<Protected><StockPage /></Protected>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </BrowserRouter>

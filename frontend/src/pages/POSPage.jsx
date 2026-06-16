@@ -44,10 +44,35 @@ export default function POSPage() {
     if (activeCat !== "all") list = list.filter((p) => p.category_id === activeCat);
     if (search.trim()) {
       const s = search.toLowerCase();
-      list = list.filter((p) => p.name.toLowerCase().includes(s));
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(s) ||
+          (p.barcode || "").toLowerCase().includes(s) ||
+          (p.sku || "").toLowerCase().includes(s),
+      );
     }
     return list;
   }, [products, activeCat, search]);
+
+  // Barcode scanner support: when Enter pressed in search and result exactly
+  // matches a product barcode/sku, add to cart and clear the input.
+  const handleSearchKey = (e) => {
+    if (e.key !== "Enter") return;
+    const q = search.trim();
+    if (!q) return;
+    const exact = products.find(
+      (p) => p.barcode === q || p.sku === q,
+    );
+    if (exact) {
+      addToCart(exact);
+      setSearch("");
+      return;
+    }
+    if (filtered.length === 1) {
+      addToCart(filtered[0]);
+      setSearch("");
+    }
+  };
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((acc, l) => acc + l.price * l.quantity, 0);
@@ -168,9 +193,11 @@ export default function POSPage() {
             <input
               data-testid="pos-search"
               className="flex-1 bg-transparent text-base outline-none placeholder:text-slate-400"
-              placeholder="Rechercher un produit…"
+              placeholder="Rechercher ou scanner un code-barres…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={handleSearchKey}
+              autoFocus
             />
           </div>
         </header>

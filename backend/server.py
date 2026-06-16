@@ -148,6 +148,11 @@ class Product(BaseModel):
     image_url: Optional[str] = None
     modifiers: List[ModifierGroup] = []
     tva_rate: float = 20.0
+    barcode: Optional[str] = None
+    sku: Optional[str] = None
+    supplier_id: Optional[str] = None
+    cost_price: Optional[float] = None
+    low_stock_threshold: int = 0
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -160,6 +165,11 @@ class ProductCreate(BaseModel):
     image_url: Optional[str] = None
     modifiers: List[ModifierGroup] = []
     tva_rate: float = 20.0
+    barcode: Optional[str] = None
+    sku: Optional[str] = None
+    supplier_id: Optional[str] = None
+    cost_price: Optional[float] = None
+    low_stock_threshold: int = 0
 
 
 class Zone(BaseModel):
@@ -1789,6 +1799,237 @@ import nf525_loyalty as _ext  # noqa: E402
 _ext.db = db
 _ext.api_router = api_router
 _ext.register_routes()
+
+
+# --- Suppliers ----------------------------------------------------------
+class Supplier(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=new_id)
+    name: str
+    contact_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+
+
+class SupplierIn(BaseModel):
+    name: str
+    contact_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@api_router.get("/suppliers")
+async def list_suppliers():
+    return await db.suppliers.find({}, {"_id": 0}).sort("name", 1).to_list(2000)
+
+
+@api_router.post("/suppliers")
+async def create_supplier(payload: SupplierIn):
+    s = Supplier(**payload.model_dump())
+    await db.suppliers.insert_one(s.model_dump())
+    return s
+
+
+@api_router.put("/suppliers/{supplier_id}")
+async def update_supplier(supplier_id: str, payload: SupplierIn):
+    res = await db.suppliers.update_one({"id": supplier_id}, {"$set": payload.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Fournisseur introuvable")
+    return await db.suppliers.find_one({"id": supplier_id}, {"_id": 0})
+
+
+@api_router.delete("/suppliers/{supplier_id}")
+async def delete_supplier(supplier_id: str):
+    res = await db.suppliers.delete_one({"id": supplier_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Fournisseur introuvable")
+    # detach from products
+    await db.products.update_many({"supplier_id": supplier_id}, {"$set": {"supplier_id": None}})
+    return {"ok": True}
+
+
+# --- Barcode lookup -----------------------------------------------------
+@api_router.get("/products/by-barcode/{code}")
+async def get_product_by_barcode(code: str):
+    code = (code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Code vide")
+    doc = await db.products.find_one(
+        {"$or": [{"barcode": code}, {"sku": code}]}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Aucun produit pour ce code")
+    return doc
+
+
+# --- Stock movements ----------------------------------------------------
+MovementType = Literal["in", "out", "adjust"]
+
+
+class StockMovement(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=new_id)
+    product_id: str
+    product_name: str
+    type: MovementType
+    quantity: int
+    reason: Optional[str] = None
+    supplier_id: Optional[str] = None
+    unit_cost: Optional[float] = None
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    stock_before: int
+    stock_after: int
+    created_at: str = Field(default_factory=now_iso)
+
+
+class StockMovementIn(BaseModel):
+    product_id: str
+    type: MovementType
+    quantity: int = Field(ge=1)
+    reason: Optional[str] = None
+    supplier_id: Optional[str] = None
+    unit_cost: Optional[float] = None
+
+
+class StockAdjustIn(BaseModel):
+    product_id: str
+    new_stock: int = Field(ge=0)
+    reason: Optional[str] = None
+
+
+@api_router.get("/stock/movements")
+async def list_stock_movements(product_id: Optional[str] = None, limit: int = 200):
+    q: dict = {}
+    if product_id:
+        q["product_id"] = product_id
+    cur = db.stock_movements.find(q, {"_id": 0}).sort("created_at", -1).limit(limit)
+    return await cur.to_list(limit)
+
+
+@api_router.post("/stock/movements")
+async def create_stock_movement(payload: StockMovementIn, user: Optional[dict] = Depends(current_user)):
+    product = await db.products.find_one({"id": payload.product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable")
+    before = int(product.get("stock", 0))
+    delta = payload.quantity if payload.type == "in" else -payload.quantity
+    after = max(0, before + delta)
+    await db.products.update_one({"id": payload.product_id}, {"$set": {"stock": after}})
+    mvt = StockMovement(
+        product_id=product["id"],
+        product_name=product["name"],
+        type=payload.type,
+        quantity=payload.quantity,
+        reason=payload.reason,
+        supplier_id=payload.supplier_id,
+        unit_cost=payload.unit_cost,
+        user_id=(user or {}).get("id"),
+        user_name=(user or {}).get("name"),
+        stock_before=before,
+        stock_after=after,
+    )
+    await db.stock_movements.insert_one(mvt.model_dump())
+    await append_journal("STOCK", mvt.id, {
+        "product": product["name"],
+        "type": payload.type,
+        "qty": payload.quantity,
+        "before": before,
+        "after": after,
+    })
+    return mvt
+
+
+@api_router.post("/stock/adjust")
+async def adjust_stock(payload: StockAdjustIn, user: Optional[dict] = Depends(current_user)):
+    product = await db.products.find_one({"id": payload.product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable")
+    before = int(product.get("stock", 0))
+    after = payload.new_stock
+    await db.products.update_one({"id": payload.product_id}, {"$set": {"stock": after}})
+    mvt = StockMovement(
+        product_id=product["id"],
+        product_name=product["name"],
+        type="adjust",
+        quantity=abs(after - before),
+        reason=payload.reason or "Ajustement d'inventaire",
+        user_id=(user or {}).get("id"),
+        user_name=(user or {}).get("name"),
+        stock_before=before,
+        stock_after=after,
+    )
+    await db.stock_movements.insert_one(mvt.model_dump())
+    await append_journal("STOCK", mvt.id, {
+        "product": product["name"],
+        "type": "adjust",
+        "before": before,
+        "after": after,
+    })
+    return mvt
+
+
+@api_router.get("/stock/low")
+async def low_stock_products():
+    """Returns products where track_stock=True and stock <= low_stock_threshold."""
+    items = await db.products.find(
+        {"track_stock": True}, {"_id": 0}
+    ).to_list(2000)
+    out = []
+    for p in items:
+        thr = int(p.get("low_stock_threshold") or 0)
+        st = int(p.get("stock") or 0)
+        if thr > 0 and st <= thr:
+            out.append(p)
+    return out
+
+
+# --- Backup ZIP ---------------------------------------------------------
+@api_router.get("/backup/export")
+async def export_backup():
+    """Returns a ZIP containing JSON dumps of all collections."""
+    import io
+    import json
+    import zipfile
+    from fastapi.responses import StreamingResponse
+
+    collections = [
+        "users", "categories", "products", "zones", "tables",
+        "orders", "sales", "cash_sessions", "customers", "suppliers",
+        "stock_movements", "reports", "closures", "settings", "nf525_journal",
+        "counters",
+    ]
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        meta = {
+            "generated_at": now_iso(),
+            "app": "QuickPOS",
+            "version": 1,
+            "collections": collections,
+        }
+        zf.writestr("manifest.json", json.dumps(meta, indent=2, ensure_ascii=False))
+        for col in collections:
+            try:
+                docs = await db[col].find({}).to_list(100000)
+                for d in docs:
+                    d.pop("_id", None)
+                zf.writestr(f"{col}.json", json.dumps(docs, indent=2, ensure_ascii=False, default=str))
+            except Exception as exc:
+                logger.warning("backup %s failed: %s", col, exc)
+                zf.writestr(f"{col}.error.txt", str(exc))
+    buffer.seek(0)
+    filename = f"quickpos-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
 
 app.include_router(api_router)
 
