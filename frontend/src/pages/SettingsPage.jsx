@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CircleDollarSign, Users, Mail, Printer, ShieldCheck, HardDrive, Store, KeyRound } from "lucide-react";
+import { CircleDollarSign, Users, Mail, Printer, ShieldCheck, HardDrive, Store, KeyRound, ScrollText } from "lucide-react";
 import CurrencySection from "@/components/settings/CurrencySection";
 import UsersSection from "@/components/settings/UsersSection";
 import SmtpSection from "@/components/settings/SmtpSection";
@@ -8,6 +8,7 @@ import NF525Section from "@/components/settings/NF525Section";
 import BackupSection from "@/components/settings/BackupSection";
 import ShopSection from "@/components/settings/ShopSection";
 import PermissionsSection from "@/components/settings/PermissionsSection";
+import AuditSection from "@/components/settings/AuditSection";
 
 const TABS = [
   { id: "shop", label: "Point de vente", icon: Store },
@@ -17,6 +18,7 @@ const TABS = [
   { id: "smtp", label: "Email SMTP", icon: Mail },
   { id: "print", label: "Impression", icon: Printer },
   { id: "nf525", label: "NF525 & Fidélité", icon: ShieldCheck },
+  { id: "audit", label: "Audit", icon: ScrollText },
   { id: "backup", label: "Sauvegarde", icon: HardDrive },
 ];
 
@@ -57,6 +59,7 @@ export default function SettingsPage() {
       {active === "smtp" && <SmtpSection />}
       {active === "print" && <PrintSection />}
       {active === "nf525" && <NF525Section />}
+      {active === "audit" && <AuditSection />}
       {active === "backup" && <BackupSection />}
     </div>
   );
