@@ -1443,6 +1443,8 @@ async def get_settings():
     print_doc = (doc or {}).get("print") or {}
     print_out = {
         "auto_print_z": print_doc.get("auto_print_z", True),
+        "auto_print_receipt": print_doc.get("auto_print_receipt", True),
+        "open_drawer_on_cash": print_doc.get("open_drawer_on_cash", True),
         "paper_width_mm": print_doc.get("paper_width_mm", 80),
         "shop_name": print_doc.get("shop_name", "QuickPOS"),
         "footer_line": print_doc.get("footer_line", "Merci de votre visite"),
@@ -1508,6 +1510,8 @@ async def update_settings(payload: SettingsUpdate):
     if payload.print is not None:
         update["print"] = {
             "auto_print_z": bool(payload.print.get("auto_print_z", True)),
+            "auto_print_receipt": bool(payload.print.get("auto_print_receipt", True)),
+            "open_drawer_on_cash": bool(payload.print.get("open_drawer_on_cash", True)),
             "paper_width_mm": int(payload.print.get("paper_width_mm", 80)),
             "shop_name": str(payload.print.get("shop_name", "QuickPOS"))[:40],
             "footer_line": str(payload.print.get("footer_line", ""))[:80],
