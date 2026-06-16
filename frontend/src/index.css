@@ -107,7 +107,79 @@ code {
     margin: 8px 0;
 }
 
+/* Thermal 80mm Z journal */
+.print-only {
+    display: none;
+}
+
+.printable-z {
+    font-family: "JetBrains Mono", "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.35;
+    color: #000;
+    background: #fff;
+    width: 72mm;
+    padding: 2mm;
+}
+
+.printable-z .z-header {
+    text-align: center;
+    font-weight: bold;
+}
+
+.printable-z .z-title {
+    font-size: 14px;
+    margin: 0 0 4px;
+}
+
+.printable-z .z-mono {
+    font-family: inherit;
+}
+
+.printable-z .z-dashed {
+    border-top: 1px dashed #000;
+    margin: 6px 0;
+}
+
+.printable-z .z-section {
+    font-weight: bold;
+    margin: 4px 0 2px;
+    text-transform: uppercase;
+}
+
+.printable-z .z-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.printable-z .z-row > span:last-child {
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.printable-z .z-bold {
+    font-weight: bold;
+    font-size: 12px;
+}
+
+.printable-z .z-center {
+    text-align: center;
+}
+
+.printable-z .z-small {
+    font-size: 9px;
+}
+
+.printable-z p {
+    margin: 0;
+}
+
 @media print {
+    @page {
+        size: 80mm auto;
+        margin: 0;
+    }
     body * {
         visibility: hidden;
     }
@@ -120,6 +192,21 @@ code {
         left: 0;
         top: 0;
         width: 80mm;
+    }
+    .print-only,
+    .print-only * {
+        visibility: visible;
+        display: block;
+    }
+    .print-only {
+        display: block !important;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 80mm;
+    }
+    .print-only .z-row {
+        display: flex !important;
     }
 }
 

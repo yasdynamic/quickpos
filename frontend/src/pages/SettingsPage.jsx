@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { CircleDollarSign, Users, Mail } from "lucide-react";
+import { CircleDollarSign, Users, Mail, Printer } from "lucide-react";
 import CurrencySection from "@/components/settings/CurrencySection";
 import UsersSection from "@/components/settings/UsersSection";
 import SmtpSection from "@/components/settings/SmtpSection";
+import PrintSection from "@/components/settings/PrintSection";
 
 const TABS = [
   { id: "currency", label: "Devise", icon: CircleDollarSign },
   { id: "users", label: "Utilisateurs", icon: Users },
   { id: "smtp", label: "Email SMTP", icon: Mail },
+  { id: "print", label: "Impression", icon: Printer },
 ];
 
 export default function SettingsPage() {
@@ -43,6 +45,7 @@ export default function SettingsPage() {
       {active === "currency" && <CurrencySection />}
       {active === "users" && <UsersSection />}
       {active === "smtp" && <SmtpSection />}
+      {active === "print" && <PrintSection />}
     </div>
   );
 }

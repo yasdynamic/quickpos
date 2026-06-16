@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock, Mail, AlertTriangle, CheckCircle2, Banknote, FileText } from "lucide-react";
+import { Lock, Mail, AlertTriangle, CheckCircle2, Banknote, FileText, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency, formatDateTime } from "@/lib/api";
+import { useSettings } from "@/context/SettingsContext";
 import OpenSessionModal from "@/components/OpenSessionModal";
+import PrintableJournal from "@/components/PrintableJournal";
 
 const PAYMENT_LABEL = { cash: "Espèces", card: "Carte", mobile: "Mobile Money" };
 
 export default function SessionPage() {
   const navigate = useNavigate();
+  const { settings: appSettings } = useSettings();
   const [session, setSession] = useState(null);
   const [xData, setXData] = useState(null);
   const [history, setHistory] = useState([]);
@@ -18,6 +21,7 @@ export default function SessionPage() {
   const [email, setEmail] = useState("");
   const [loadingClose, setLoadingClose] = useState(false);
   const [result, setResult] = useState(null);
+  const [printSales, setPrintSales] = useState([]);
 
   const load = async () => {
     const [s, h, settingsRes] = await Promise.all([
@@ -52,17 +56,33 @@ export default function SessionPage() {
         recipient_email: email || undefined,
       });
       setResult(res.data);
+      // Fetch sales for the printable journal
+      try {
+        const salesRes = await api.get("/sales", { params: { session_id: session.id } });
+        setPrintSales(salesRes.data || []);
+      } catch {
+        setPrintSales([]);
+      }
       if (res.data.email?.status === "sent") {
         toast.success(`Rapport Z envoyé à ${res.data.email.to}`);
       } else if (res.data.email?.status === "skipped") {
-        toast.warning("Session fermée. Email simulé (clé Resend manquante).");
+        toast.warning("Session fermée. Email non envoyé (configuration manquante).");
       }
       load();
+      // Auto-print thermal journal
+      if (appSettings?.print?.auto_print_z) {
+        // give the DOM a tick to render the printable component
+        setTimeout(() => window.print(), 400);
+      }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally {
       setLoadingClose(false);
     }
+  };
+
+  const reprint = () => {
+    setTimeout(() => window.print(), 100);
   };
 
   return (
@@ -251,15 +271,34 @@ export default function SessionPage() {
                   diff={result.report.cash_difference}
                 />
               </div>
-              <button
-                onClick={() => navigate("/")}
-                className="mt-5 rounded-md border border-emerald-300 bg-white px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-emerald-900 hover:bg-emerald-50"
-              >
-                Retour au plan de salle
-              </button>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  data-testid="reprint-z-btn"
+                  onClick={reprint}
+                  className="flex items-center gap-2 rounded-md bg-[#0A0A0A] px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-white hover:bg-black active:scale-95"
+                >
+                  <Printer className="h-4 w-4" />
+                  Imprimer le journal
+                </button>
+                <button
+                  onClick={() => navigate("/")}
+                  className="rounded-md border border-emerald-300 bg-white px-5 py-2.5 text-sm font-bold uppercase tracking-wider text-emerald-900 hover:bg-emerald-50"
+                >
+                  Retour au plan de salle
+                </button>
+              </div>
             </section>
           )}
         </div>
+      )}
+
+      {/* Printable Z journal — hidden on screen, visible during window.print() */}
+      {result && (
+        <PrintableJournal
+          shopName={appSettings?.print?.shop_name}
+          sessionData={result.report}
+          sales={printSales}
+        />
       )}
 
       <section className="mt-8 rounded-md border border-[#E5E7EB] bg-white p-6">

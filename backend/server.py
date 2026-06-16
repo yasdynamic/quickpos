@@ -1440,6 +1440,13 @@ async def get_settings():
         "use_tls": smtp_doc.get("use_tls", True),
         "enabled": bool(smtp_doc.get("enabled")),
     }
+    print_doc = (doc or {}).get("print") or {}
+    print_out = {
+        "auto_print_z": print_doc.get("auto_print_z", True),
+        "paper_width_mm": print_doc.get("paper_width_mm", 80),
+        "shop_name": print_doc.get("shop_name", "QuickPOS"),
+        "footer_line": print_doc.get("footer_line", "Merci de votre visite"),
+    }
     return {
         "report_email": REPORT_EMAIL,
         "sender_email": SENDER_EMAIL,
@@ -1448,6 +1455,7 @@ async def get_settings():
         "smtp": smtp_out,
         "currency": currency,
         "report_recipients": (doc or {}).get("report_recipients") or [],
+        "print": print_out,
     }
 
 
@@ -1473,6 +1481,7 @@ class SettingsUpdate(BaseModel):
     currency: Optional[CurrencyConfig] = None
     smtp: Optional[SMTPConfigIn] = None
     report_recipients: Optional[List[EmailStr]] = None
+    print: Optional[dict] = None
 
 
 @api_router.put("/settings")
@@ -1496,6 +1505,13 @@ async def update_settings(payload: SettingsUpdate):
                 seen.add(v)
                 cleaned.append(v)
         update["report_recipients"] = cleaned
+    if payload.print is not None:
+        update["print"] = {
+            "auto_print_z": bool(payload.print.get("auto_print_z", True)),
+            "paper_width_mm": int(payload.print.get("paper_width_mm", 80)),
+            "shop_name": str(payload.print.get("shop_name", "QuickPOS"))[:40],
+            "footer_line": str(payload.print.get("footer_line", ""))[:80],
+        }
     if not update:
         raise HTTPException(status_code=400, detail="Aucune modification fournie")
     await db.settings.update_one(
