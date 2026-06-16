@@ -18,6 +18,8 @@ import SettingsPage from "@/pages/SettingsPage";
 import CustomersPage from "@/pages/CustomersPage";
 import SuppliersPage from "@/pages/SuppliersPage";
 import StockPage from "@/pages/StockPage";
+import RefundsPage from "@/pages/RefundsPage";
+import InventoryPage from "@/pages/InventoryPage";
 import AppShell from "@/components/AppShell";
 import SessionGuard from "@/components/SessionGuard";
 
@@ -50,6 +52,9 @@ function App() {
                 <Route path="/clients" element={<Protected><CustomersPage /></Protected>} />
                 <Route path="/fournisseurs" element={<Protected><SuppliersPage /></Protected>} />
                 <Route path="/stock" element={<Protected><StockPage /></Protected>} />
+                <Route path="/inventaire" element={<Protected><InventoryPage /></Protected>} />
+                <Route path="/inventaire/:sessionId" element={<Protected><InventoryPage /></Protected>} />
+                <Route path="/retours" element={<Protected><SessionGuard><RefundsPage /></SessionGuard></Protected>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </BrowserRouter>

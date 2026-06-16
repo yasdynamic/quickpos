@@ -12,7 +12,7 @@ from typing import List, Literal, Optional
 
 import resend
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, UploadFile
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -2002,7 +2002,7 @@ async def export_backup():
         "users", "categories", "products", "zones", "tables",
         "orders", "sales", "cash_sessions", "customers", "suppliers",
         "stock_movements", "reports", "closures", "settings", "nf525_journal",
-        "counters",
+        "counters", "refunds", "inventory_sessions",
     ]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -2029,6 +2029,409 @@ async def export_backup():
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# --- Refunds (Avoirs) ---------------------------------------------------
+class RefundLine(BaseModel):
+    product_id: Optional[str] = None
+    name: str
+    price: float
+    quantity: int
+
+
+class RefundCreate(BaseModel):
+    sale_id: str
+    items: List[RefundLine]
+    reason: Optional[str] = None
+    payment_method: PaymentMethod = "cash"
+
+
+@api_router.post("/refunds")
+async def create_refund(payload: RefundCreate, user: Optional[dict] = Depends(current_user)):
+    await _require_open_session_or_400()
+    sale = await db.sales.find_one({"id": payload.sale_id}, {"_id": 0})
+    if not sale:
+        raise HTTPException(status_code=404, detail="Vente d'origine introuvable")
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Aucune ligne à rembourser")
+
+    # Compute already refunded quantities for this sale per product
+    prev = await db.refunds.find({"sale_id": payload.sale_id}, {"_id": 0}).to_list(500)
+    already: dict = {}
+    for r in prev:
+        for it in r.get("items", []):
+            key = it.get("product_id") or it["name"]
+            already[key] = already.get(key, 0) + int(it["quantity"])
+
+    # Validate against original sale lines
+    sale_qty: dict = {}
+    sale_price: dict = {}
+    for it in sale.get("items", []):
+        key = it.get("product_id") or it["name"]
+        sale_qty[key] = sale_qty.get(key, 0) + int(it["quantity"])
+        sale_price[key] = float(it["price"])
+
+    for line in payload.items:
+        key = line.product_id or line.name
+        max_qty = sale_qty.get(key, 0) - already.get(key, 0)
+        if line.quantity > max_qty:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ligne « {line.name} » : quantité max remboursable = {max_qty}",
+            )
+
+    total = round(sum(l.price * l.quantity for l in payload.items), 2)
+    session = await get_current_session()
+
+    # Restore stock
+    for line in payload.items:
+        if not line.product_id:
+            continue
+        product = await db.products.find_one({"id": line.product_id}, {"_id": 0})
+        if product and product.get("track_stock", True):
+            new_stock = int(product.get("stock", 0)) + line.quantity
+            await db.products.update_one(
+                {"id": line.product_id}, {"$set": {"stock": new_stock}}
+            )
+
+    refund_id = new_id()
+    refund = {
+        "id": refund_id,
+        "sale_id": payload.sale_id,
+        "original_ticket_number": sale.get("ticket_number"),
+        "items": [l.model_dump() for l in payload.items],
+        "total": total,
+        "reason": payload.reason,
+        "payment_method": payload.payment_method,
+        "refunded_by": (user or {}).get("name"),
+        "refunded_by_id": (user or {}).get("id"),
+        "session_id": session["id"] if session else None,
+        "created_at": now_iso(),
+    }
+    await db.refunds.insert_one(refund)
+
+    # Negative "sale" entry so reports/CA are properly adjusted
+    neg_sale = Sale(
+        ticket_number=await next_ticket_number(),
+        items=[
+            CartLine(
+                product_id=l.product_id or "",
+                name=f"AVOIR — {l.name}",
+                price=-l.price,
+                quantity=l.quantity,
+            )
+            for l in payload.items
+        ],
+        subtotal=-total,
+        total=-total,
+        tva_breakdown={},
+        payment_method=payload.payment_method,
+        cashier_id=(user or {}).get("id"),
+        cashier_name=(user or {}).get("name"),
+        session_id=session["id"] if session else None,
+        order_id=None,
+    )
+    sale_doc = neg_sale.model_dump()
+    sale_doc["refund_id"] = refund_id
+    sale_doc["original_sale_id"] = payload.sale_id
+    await db.sales.insert_one(sale_doc)
+
+    await append_journal("REFUND", refund_id, {
+        "sale_id": payload.sale_id,
+        "ticket_number": sale.get("ticket_number"),
+        "total": -total,
+        "items": [{"name": l.name, "qty": l.quantity, "price": l.price} for l in payload.items],
+        "reason": payload.reason,
+    })
+    refund["sale"] = sale_doc
+    return refund
+
+
+@api_router.get("/refunds")
+async def list_refunds(limit: int = 100, sale_id: Optional[str] = None):
+    q: dict = {}
+    if sale_id:
+        q["sale_id"] = sale_id
+    cur = db.refunds.find(q, {"_id": 0}).sort("created_at", -1).limit(limit)
+    return await cur.to_list(limit)
+
+
+# --- Products Excel import/export ---------------------------------------
+EXCEL_COLUMNS = [
+    "id", "name", "category_name", "price", "tva_rate",
+    "stock", "track_stock", "barcode", "sku", "cost_price",
+    "low_stock_threshold", "supplier_name",
+]
+
+
+@api_router.get("/exports/products.xlsx")
+async def export_products_xlsx():
+    """Returns an XLSX workbook with all products."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from fastapi.responses import StreamingResponse
+
+    cats = {c["id"]: c["name"] for c in await db.categories.find({}, {"_id": 0}).to_list(2000)}
+    sups = {s["id"]: s["name"] for s in await db.suppliers.find({}, {"_id": 0}).to_list(2000)}
+    products = await db.products.find({}, {"_id": 0}).sort("name", 1).to_list(5000)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produits"
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="002FA7")
+    ws.append(EXCEL_COLUMNS)
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    for p in products:
+        ws.append([
+            p.get("id", ""),
+            p.get("name", ""),
+            cats.get(p.get("category_id"), ""),
+            p.get("price", 0),
+            p.get("tva_rate", 20),
+            p.get("stock", 0),
+            p.get("track_stock", True),
+            p.get("barcode") or "",
+            p.get("sku") or "",
+            p.get("cost_price") if p.get("cost_price") is not None else "",
+            p.get("low_stock_threshold", 0),
+            sups.get(p.get("supplier_id"), ""),
+        ])
+    for col_idx, _ in enumerate(EXCEL_COLUMNS, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = 18
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"quickpos-products-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@api_router.post("/imports/products")
+async def import_products_xlsx(file: UploadFile = File(...), dry_run: bool = True):
+    """Import products from an XLSX file. Returns a preview when dry_run=True."""
+    import io
+    from openpyxl import load_workbook
+
+    raw = await file.read()
+    try:
+        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Fichier invalide : {exc}")
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    headers_row = [str(h or "").strip() for h in rows[0]]
+    if "name" not in headers_row or "price" not in headers_row:
+        raise HTTPException(status_code=400, detail="Colonnes 'name' et 'price' requises")
+
+    cats = await db.categories.find({}, {"_id": 0}).to_list(2000)
+    sups = await db.suppliers.find({}, {"_id": 0}).to_list(2000)
+    cat_by_name = {c["name"].strip().lower(): c["id"] for c in cats}
+    sup_by_name = {s["name"].strip().lower(): s["id"] for s in sups}
+    default_cat = (cats[0]["id"] if cats else None)
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: List[dict] = []
+    preview: List[dict] = []
+
+    for row_idx, row in enumerate(rows[1:], start=2):
+        try:
+            data = dict(zip(headers_row, row))
+            name = (data.get("name") or "").strip()
+            if not name:
+                continue
+            cat_name = (data.get("category_name") or "").strip().lower()
+            cat_id = cat_by_name.get(cat_name) or default_cat
+            if not cat_id:
+                errors.append({"row": row_idx, "msg": "Catégorie inconnue et aucune par défaut"})
+                skipped += 1
+                continue
+            sup_name = (data.get("supplier_name") or "").strip().lower()
+            sup_id = sup_by_name.get(sup_name) if sup_name else None
+
+            def _num(v, default=0):
+                if v is None or v == "":
+                    return default
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return default
+
+            payload = {
+                "name": name,
+                "category_id": cat_id,
+                "price": _num(data.get("price"), 0),
+                "tva_rate": _num(data.get("tva_rate"), 20),
+                "stock": int(_num(data.get("stock"), 0)),
+                "track_stock": bool(data.get("track_stock")) if data.get("track_stock") is not None else True,
+                "barcode": (str(data.get("barcode")).strip() if data.get("barcode") else None),
+                "sku": (str(data.get("sku")).strip() if data.get("sku") else None),
+                "cost_price": _num(data.get("cost_price"), None) if data.get("cost_price") not in (None, "") else None,
+                "low_stock_threshold": int(_num(data.get("low_stock_threshold"), 0)),
+                "supplier_id": sup_id,
+            }
+
+            # Match by id if provided, else by barcode/sku, else by name
+            existing = None
+            if data.get("id"):
+                existing = await db.products.find_one({"id": str(data["id"]).strip()}, {"_id": 0})
+            if not existing and payload["barcode"]:
+                existing = await db.products.find_one({"barcode": payload["barcode"]}, {"_id": 0})
+            if not existing and payload["sku"]:
+                existing = await db.products.find_one({"sku": payload["sku"]}, {"_id": 0})
+            if not existing:
+                existing = await db.products.find_one({"name": name}, {"_id": 0})
+
+            action = "update" if existing else "create"
+            preview.append({"row": row_idx, "action": action, "name": name, "price": payload["price"]})
+
+            if not dry_run:
+                if existing:
+                    await db.products.update_one({"id": existing["id"]}, {"$set": payload})
+                    updated += 1
+                else:
+                    prod = Product(**payload)
+                    await db.products.insert_one(prod.model_dump())
+                    created += 1
+            else:
+                if existing:
+                    updated += 1
+                else:
+                    created += 1
+        except Exception as exc:
+            errors.append({"row": row_idx, "msg": str(exc)})
+            skipped += 1
+    return {
+        "dry_run": dry_run,
+        "summary": {"created": created, "updated": updated, "skipped": skipped, "errors": len(errors)},
+        "errors": errors[:50],
+        "preview": preview[:200],
+    }
+
+
+# --- Inventory sessions -------------------------------------------------
+class InventoryCount(BaseModel):
+    product_id: str
+    expected: int
+    counted: Optional[int] = None
+
+
+class InventorySession(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=new_id)
+    status: Literal["open", "closed"] = "open"
+    started_by: Optional[str] = None
+    started_at: str = Field(default_factory=now_iso)
+    closed_at: Optional[str] = None
+    counts: List[InventoryCount] = []
+
+
+@api_router.get("/inventory/sessions")
+async def list_inventory_sessions(limit: int = 30):
+    cur = db.inventory_sessions.find({}, {"_id": 0}).sort("started_at", -1).limit(limit)
+    return await cur.to_list(limit)
+
+
+@api_router.get("/inventory/sessions/{session_id}")
+async def get_inventory_session(session_id: str):
+    doc = await db.inventory_sessions.find_one({"id": session_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session inventaire introuvable")
+    return doc
+
+
+@api_router.post("/inventory/sessions")
+async def start_inventory_session(user: Optional[dict] = Depends(current_user)):
+    # Snapshot current stocks
+    products = await db.products.find({"track_stock": True}, {"_id": 0}).to_list(5000)
+    counts = [
+        InventoryCount(product_id=p["id"], expected=int(p.get("stock", 0)), counted=None)
+        for p in products
+    ]
+    s = InventorySession(
+        started_by=(user or {}).get("name"),
+        counts=counts,
+    )
+    await db.inventory_sessions.insert_one(s.model_dump())
+    return s
+
+
+class InventorySaveIn(BaseModel):
+    counts: List[InventoryCount]
+
+
+@api_router.put("/inventory/sessions/{session_id}")
+async def save_inventory_counts(session_id: str, payload: InventorySaveIn):
+    doc = await db.inventory_sessions.find_one({"id": session_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    if doc["status"] != "open":
+        raise HTTPException(status_code=400, detail="Session clôturée")
+    await db.inventory_sessions.update_one(
+        {"id": session_id},
+        {"$set": {"counts": [c.model_dump() for c in payload.counts]}},
+    )
+    return await db.inventory_sessions.find_one({"id": session_id}, {"_id": 0})
+
+
+@api_router.post("/inventory/sessions/{session_id}/close")
+async def close_inventory_session(session_id: str, user: Optional[dict] = Depends(current_user)):
+    doc = await db.inventory_sessions.find_one({"id": session_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    if doc["status"] != "open":
+        raise HTTPException(status_code=400, detail="Session déjà clôturée")
+    adjustments = 0
+    for c in doc.get("counts", []):
+        counted = c.get("counted")
+        if counted is None:
+            continue
+        expected = int(c.get("expected", 0))
+        counted = int(counted)
+        if counted == expected:
+            continue
+        product = await db.products.find_one({"id": c["product_id"]}, {"_id": 0})
+        if not product:
+            continue
+        before = int(product.get("stock", 0))
+        await db.products.update_one({"id": c["product_id"]}, {"$set": {"stock": counted}})
+        mvt = StockMovement(
+            product_id=product["id"],
+            product_name=product["name"],
+            type="adjust",
+            quantity=abs(counted - before),
+            reason=f"Inventaire {session_id[:8]}",
+            user_id=(user or {}).get("id"),
+            user_name=(user or {}).get("name"),
+            stock_before=before,
+            stock_after=counted,
+        )
+        await db.stock_movements.insert_one(mvt.model_dump())
+        adjustments += 1
+    closed_at = now_iso()
+    await db.inventory_sessions.update_one(
+        {"id": session_id},
+        {"$set": {"status": "closed", "closed_at": closed_at}},
+    )
+    await append_journal("STOCK", session_id, {
+        "action": "inventory_close",
+        "adjustments": adjustments,
+        "by": (user or {}).get("name"),
+    })
+    out = await db.inventory_sessions.find_one({"id": session_id}, {"_id": 0})
+    out["adjustments_applied"] = adjustments
+    return out
 
 
 app.include_router(api_router)

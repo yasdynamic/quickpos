@@ -47,11 +47,17 @@
 - **Backup ZIP** : endpoint `GET /api/backup/export` (17 collections JSON + manifest), bouton dans Paramètres > Sauvegarde
 - NF525 étendu pour journaliser les mouvements de stock
 
-## Backlog V1 — Phase B (prochaine session)
-- **P1** Retour produit / Avoir (avec NF525)
-- **P1** Import / Export Excel des produits (xlsx via openpyxl)
-- **P1** Inventaire complet (session de comptage avec écarts)
-- **P1** Vente au clavier numérique rapide
+### v9 — V1 Phase B (16/02/2026)
+- **Retours / Avoirs** (`/retours`) : POST `/api/refunds` crée une vente négative chaînée NF525, restitue le stock, validation max remboursable par ligne (déjà remboursé tracé). Page tactile avec ventes récentes + modale de sélection des lignes.
+- **Inventaire complet** (`/inventaire`) : sessions avec snapshot des stocks attendus, saisie quantités comptées par produit, calcul d'écarts live, clôture → ajustements en masse + journal STOCK NF525.
+- **Import / Export Excel** : `GET /api/exports/products.xlsx` + `POST /api/imports/products` (multipart, dry_run=true par défaut avec aperçu + erreurs ligne par ligne). Match par id / barcode / sku / nom. Library `openpyxl`.
+- **Vente clavier numérique** : modale NumpadModal sur POS (icône Calculator) → libellé + montant + qty → ajout d'un "article libre" hors catalogue.
+
+## Backlog V1 — Phase C
+- Impression du ticket d'avoir physique
+- Inventaire partiel (filtres catégorie/fournisseur)
+- Excel : import des modifiers
+- Rappel sauvegarde > 7 jours sur le Hub
 
 ## Backlog V2 (vision Electron)
 - **P2** Réécriture backend en TypeScript + Prisma + SQLite

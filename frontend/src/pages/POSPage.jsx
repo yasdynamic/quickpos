@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Minus, Plus, Trash2, Receipt as ReceiptIcon, Search, PauseCircle, X } from "lucide-react";
+import { Minus, Plus, Trash2, Receipt as ReceiptIcon, Search, PauseCircle, X, Calculator } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
 import CheckoutModal from "@/components/CheckoutModal";
@@ -25,6 +25,7 @@ export default function POSPage() {
   const [holdOpen, setHoldOpen] = useState(false);
   const [holdLabel, setHoldLabel] = useState("");
   const [holding, setHolding] = useState(false);
+  const [numpadOpen, setNumpadOpen] = useState(false);
 
   const load = async () => {
     const [c, p] = await Promise.all([
@@ -118,6 +119,23 @@ export default function POSPage() {
     setCart((c) => c.filter((l) => l.product_id !== id));
 
   const clearCart = () => setCart([]);
+
+  const addCustomLine = ({ name, price, quantity }) => {
+    if (!price || price <= 0) {
+      toast.error("Montant invalide");
+      return;
+    }
+    setCart((c) => [
+      ...c,
+      {
+        product_id: `custom-${Date.now()}`,
+        name: name || "Article libre",
+        price: Number(price),
+        quantity: Number(quantity) || 1,
+      },
+    ]);
+    setNumpadOpen(false);
+  };
 
   const onCheckout = async ({ payment_method, amount_received }) => {
     try {
@@ -286,16 +304,26 @@ export default function POSPage() {
             </p>
             <h2 className="text-xl font-bold">{totals.count} article(s)</h2>
           </div>
-          {cart.length > 0 && (
+          <div className="flex gap-1">
             <button
-              data-testid="cart-clear"
-              onClick={clearCart}
-              className="rounded-md border border-[#E5E7EB] p-2 text-[#4B5563] hover:bg-[#FAFAFA] active:scale-95 transition-transform"
-              title="Vider"
+              data-testid="open-numpad"
+              onClick={() => setNumpadOpen(true)}
+              className="rounded-md border border-[#E5E7EB] p-2 text-[#002FA7] hover:bg-[#FAFAFA] active:scale-95 transition-transform"
+              title="Article libre"
             >
-              <Trash2 className="h-4 w-4" />
+              <Calculator className="h-4 w-4" />
             </button>
-          )}
+            {cart.length > 0 && (
+              <button
+                data-testid="cart-clear"
+                onClick={clearCart}
+                className="rounded-md border border-[#E5E7EB] p-2 text-[#4B5563] hover:bg-[#FAFAFA] active:scale-95 transition-transform"
+                title="Vider"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -481,6 +509,110 @@ export default function POSPage() {
           </div>
         </div>
       )}
+
+      {numpadOpen && (
+        <NumpadModal
+          onClose={() => setNumpadOpen(false)}
+          onConfirm={addCustomLine}
+        />
+      )}
+    </div>
+  );
+}
+
+
+function NumpadModal({ onClose, onConfirm }) {
+  const [amount, setAmount] = useState("");
+  const [label, setLabel] = useState("");
+  const [qty, setQty] = useState(1);
+
+  const press = (k) => {
+    if (k === "." && amount.includes(".")) return;
+    if (amount.length >= 10) return;
+    setAmount((a) => a + k);
+  };
+  const erase = () => setAmount((a) => a.slice(0, -1));
+  const clear = () => setAmount("");
+
+  const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"];
+  const value = parseFloat(amount) || 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="numpad-modal">
+      <div className="w-full max-w-sm rounded-lg bg-white shadow-xl">
+        <header className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#002FA7] text-white">
+              <Calculator className="h-5 w-5" />
+            </div>
+            <h2 className="text-xl font-bold">Article libre</h2>
+          </div>
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] hover:bg-[#FAFAFA]">
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+        <div className="space-y-3 p-6">
+          <input
+            data-testid="numpad-label"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Libellé (optionnel)"
+            className="w-full rounded-md border border-[#E5E7EB] px-3 py-2 text-sm outline-none focus:border-[#002FA7]"
+          />
+          <div className="rounded-md border-2 border-[#002FA7] bg-[#FAFAFA] px-4 py-3 text-right">
+            <p className="text-xs uppercase tracking-wider font-semibold text-slate-500">Montant</p>
+            <p data-testid="numpad-display" className="text-3xl font-bold font-mono text-[#002FA7]">
+              {amount || "0"}
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {KEYS.map((k) => (
+              <button
+                key={k}
+                data-testid={`numpad-key-${k}`}
+                onClick={() => press(k)}
+                className="h-14 rounded-md border border-[#E5E7EB] bg-white text-xl font-bold hover:bg-[#FAFAFA] active:scale-95"
+              >
+                {k}
+              </button>
+            ))}
+            <button
+              data-testid="numpad-back"
+              onClick={erase}
+              className="h-14 rounded-md border border-[#E5E7EB] bg-white text-sm font-semibold uppercase tracking-wider hover:bg-[#FAFAFA] active:scale-95"
+            >
+              ⌫
+            </button>
+            <button
+              data-testid="numpad-clear"
+              onClick={clear}
+              className="col-span-2 h-14 rounded-md border border-[#E5E7EB] bg-white text-sm font-semibold uppercase tracking-wider hover:bg-[#FAFAFA] active:scale-95"
+            >
+              Effacer
+            </button>
+          </div>
+          <div className="flex items-center justify-between rounded-md bg-[#FAFAFA] px-3 py-2">
+            <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">Quantité</span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB]">
+                <Minus className="h-4 w-4" />
+              </button>
+              <span className="w-10 text-center font-mono font-bold">{qty}</span>
+              <button onClick={() => setQty((q) => q + 1)} className="flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB]">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <button
+            data-testid="numpad-confirm"
+            disabled={value <= 0}
+            onClick={() => onConfirm({ name: label, price: value, quantity: qty })}
+            className="h-14 w-full rounded-md bg-[#002FA7] text-base font-bold uppercase tracking-wider text-white hover:bg-[#002277] active:scale-95 disabled:opacity-40"
+          >
+            Ajouter au ticket
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Pencil, Plus, Trash2, X, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatCurrency } from "@/lib/api";
 import { useSettings } from "@/context/SettingsContext";
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const empty = {
   name: "",
@@ -26,6 +28,10 @@ export default function ProductsPage() {
   const [form, setForm] = useState(empty);
   const [showCat, setShowCat] = useState(false);
   const [catForm, setCatForm] = useState({ name: "", color: "#002FA7" });
+  const [importPreview, setImportPreview] = useState(null);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef(null);
 
   const load = async () => {
     const [c, p, s] = await Promise.all([
@@ -127,6 +133,56 @@ export default function ProductsPage() {
     }
   };
 
+  const downloadXlsx = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/exports/products.xlsx`);
+      if (!res.ok) throw new Error("Erreur export");
+      const cd = res.headers.get("content-disposition") || "";
+      const m = cd.match(/filename=([^;]+)/i);
+      const fname = (m && m[1].trim()) || "produits.xlsx";
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Exporté : ${fname}`);
+    } catch (err) {
+      toast.error(err?.message || "Erreur export");
+    }
+  };
+
+  const uploadXlsx = async (file, commit = false) => {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const url = `/imports/products?dry_run=${commit ? "false" : "true"}`;
+      const res = await api.post(url, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      if (commit) {
+        toast.success(
+          `Import OK : ${res.data.summary.created} créés, ${res.data.summary.updated} mis à jour`,
+        );
+        setImportPreview(null);
+        setImportFile(null);
+        load();
+      } else {
+        setImportPreview(res.data);
+        setImportFile(file);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur import");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="p-8">
       <header className="mb-8 flex items-center justify-between">
@@ -137,6 +193,35 @@ export default function ProductsPage() {
           <h1 className="text-4xl font-bold tracking-tight">Produits</h1>
         </div>
         <div className="flex gap-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            data-testid="import-file-input"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) uploadXlsx(f, false);
+              e.target.value = "";
+            }}
+          />
+          <button
+            data-testid="export-xlsx"
+            onClick={downloadXlsx}
+            className="flex items-center gap-2 rounded-md border border-[#E5E7EB] bg-white px-4 py-3 text-sm font-semibold hover:bg-[#FAFAFA] active:scale-95"
+          >
+            <Download className="h-4 w-4" />
+            Excel
+          </button>
+          <button
+            data-testid="import-xlsx"
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 rounded-md border border-[#E5E7EB] bg-white px-4 py-3 text-sm font-semibold hover:bg-[#FAFAFA] active:scale-95 disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" />
+            Importer
+          </button>
           <button
             data-testid="open-new-category"
             onClick={() => setShowCat(true)}
@@ -298,6 +383,99 @@ export default function ProductsPage() {
                 Créer
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {importPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="import-preview-modal">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-white shadow-xl">
+            <header className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-wider font-semibold text-slate-500">Import Excel — Aperçu</p>
+                <h2 className="text-xl font-bold">{importFile?.name}</h2>
+              </div>
+              <button
+                onClick={() => { setImportPreview(null); setImportFile(null); }}
+                className="flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-xs uppercase tracking-wider font-semibold text-emerald-700">À créer</p>
+                  <p className="text-2xl font-bold font-mono text-emerald-700">{importPreview.summary.created}</p>
+                </div>
+                <div className="rounded-md border border-[#0EA5E9] bg-sky-50 p-3">
+                  <p className="text-xs uppercase tracking-wider font-semibold text-[#0EA5E9]">À mettre à jour</p>
+                  <p className="text-2xl font-bold font-mono text-[#0EA5E9]">{importPreview.summary.updated}</p>
+                </div>
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+                  <p className="text-xs uppercase tracking-wider font-semibold text-amber-700">Erreurs / ignorés</p>
+                  <p className="text-2xl font-bold font-mono text-amber-700">
+                    {importPreview.summary.skipped + importPreview.summary.errors}
+                  </p>
+                </div>
+              </div>
+              {(importPreview.errors || []).length > 0 && (
+                <details className="rounded-md border border-amber-300 bg-amber-50 p-3">
+                  <summary className="cursor-pointer text-sm font-bold text-amber-900">
+                    {importPreview.errors.length} erreur(s)
+                  </summary>
+                  <ul className="mt-2 space-y-1 text-xs text-amber-800">
+                    {importPreview.errors.map((e, i) => (
+                      <li key={i}>Ligne {e.row} : {e.msg}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              <div className="max-h-64 overflow-y-auto rounded-md border border-[#E5E7EB]">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#FAFAFA] sticky top-0">
+                    <tr>
+                      <th className="px-3 py-1.5">#</th>
+                      <th className="px-3 py-1.5">Action</th>
+                      <th className="px-3 py-1.5">Nom</th>
+                      <th className="px-3 py-1.5 text-right">Prix</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(importPreview.preview || []).map((p, i) => (
+                      <tr key={i} className="border-t border-[#E5E7EB]">
+                        <td className="px-3 py-1.5 font-mono">{p.row}</td>
+                        <td className="px-3 py-1.5">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase text-white ${
+                            p.action === "create" ? "bg-emerald-600" : "bg-[#0EA5E9]"
+                          }`}>
+                            {p.action === "create" ? "Créer" : "MAJ"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5">{p.name}</td>
+                        <td className="px-3 py-1.5 font-mono text-right">{formatCurrency(p.price)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-[#E5E7EB] px-6 py-4 bg-[#FAFAFA]">
+              <button
+                onClick={() => { setImportPreview(null); setImportFile(null); }}
+                className="rounded-md border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold hover:bg-[#FAFAFA]"
+              >
+                Annuler
+              </button>
+              <button
+                data-testid="import-confirm"
+                disabled={importing}
+                onClick={() => importFile && uploadXlsx(importFile, true)}
+                className="rounded-md bg-[#002FA7] px-5 py-2 text-sm font-bold uppercase tracking-wider text-white hover:bg-[#002277] disabled:opacity-50"
+              >
+                {importing ? "Import…" : "Confirmer l'import"}
+              </button>
+            </footer>
           </div>
         </div>
       )}
