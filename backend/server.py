@@ -1011,9 +1011,9 @@ async def close_session(session_id: str, payload: CloseSessionRequest):
 
     currency = await _get_currency()
     html = _build_z_html(data, currency)
-    recipient = payload.recipient_email or REPORT_EMAIL
+    recipients = await _resolve_recipients(payload.recipient_email)
     email_result = await _maybe_send_email(
-        recipient, f"QuickPOS · Rapport Z {closed_at[:10]}", html
+        recipients, f"QuickPOS · Rapport Z {closed_at[:10]}", html
     )
 
     z_report = {
@@ -1279,7 +1279,7 @@ def _build_monthly_html(data: dict, currency: Optional[dict] = None) -> str:
     """
 
 
-def _send_via_smtp_sync(smtp: dict, to: str, subject: str, html: str) -> dict:
+def _send_via_smtp_sync(smtp: dict, to: List[str], subject: str, html: str) -> dict:
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
@@ -1296,7 +1296,7 @@ def _send_via_smtp_sync(smtp: dict, to: str, subject: str, html: str) -> dict:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = formataddr((from_name, from_email))
-    msg["To"] = to
+    msg["To"] = ", ".join(to)
     msg.attach(MIMEText(html, "html", "utf-8"))
 
     if port == 465:
@@ -1308,13 +1308,13 @@ def _send_via_smtp_sync(smtp: dict, to: str, subject: str, html: str) -> dict:
     try:
         if username and password:
             server.login(username, password)
-        server.sendmail(from_email, [to], msg.as_string())
+        server.sendmail(from_email, to, msg.as_string())
     finally:
         server.quit()
     return {"status": "sent", "transport": "smtp", "to": to}
 
 
-async def _send_via_smtp(smtp: dict, to: str, subject: str, html: str) -> dict:
+async def _send_via_smtp(smtp: dict, to: List[str], subject: str, html: str) -> dict:
     try:
         return await asyncio.to_thread(
             _send_via_smtp_sync, smtp, to, subject, html
@@ -1324,27 +1324,47 @@ async def _send_via_smtp(smtp: dict, to: str, subject: str, html: str) -> dict:
         return {"status": "error", "transport": "smtp", "error": str(exc)}
 
 
-async def _maybe_send_email(to: Optional[str], subject: str, html: str) -> dict:
-    if not to:
+def _normalize_recipients(to) -> List[str]:
+    if to is None:
+        return []
+    if isinstance(to, str):
+        return [to] if to.strip() else []
+    return [str(x).strip() for x in to if str(x).strip()]
+
+
+async def _maybe_send_email(to, subject: str, html: str) -> dict:
+    recipients = _normalize_recipients(to)
+    if not recipients:
         return {"status": "skipped", "reason": "Aucun destinataire fourni"}
 
-    # Prefer SMTP if enabled
     doc = await db.settings.find_one({"_id": "config"}, {"_id": 0})
     smtp = (doc or {}).get("smtp") or {}
     if smtp.get("enabled") and smtp.get("host"):
-        return await _send_via_smtp(smtp, to, subject, html)
+        return await _send_via_smtp(smtp, recipients, subject, html)
 
-    # Fallback to Resend if configured
     if RESEND_API_KEY:
-        params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
+        params = {"from": SENDER_EMAIL, "to": recipients, "subject": subject, "html": html}
         try:
             result = await asyncio.to_thread(resend.Emails.send, params)
-            return {"status": "sent", "transport": "resend", "email_id": result.get("id"), "to": to}
+            return {"status": "sent", "transport": "resend", "email_id": result.get("id"), "to": recipients}
         except Exception as exc:
             logger.exception("Resend error")
             return {"status": "error", "transport": "resend", "error": str(exc)}
 
     return {"status": "skipped", "reason": "Aucun transport email configuré"}
+
+
+async def _resolve_recipients(explicit: Optional[str]) -> List[str]:
+    """Pick recipient list: explicit single override, else settings.report_recipients, else REPORT_EMAIL env."""
+    if explicit:
+        return [explicit]
+    doc = await db.settings.find_one({"_id": "config"}, {"_id": 0})
+    rec = (doc or {}).get("report_recipients") or []
+    if rec:
+        return list(rec)
+    if REPORT_EMAIL:
+        return [REPORT_EMAIL]
+    return []
 
 
 @api_router.post("/reports/daily/send")
@@ -1355,9 +1375,9 @@ async def send_daily(payload: SendReportRequest):
     data["date"] = d.isoformat()
     currency = await _get_currency()
     html = _build_daily_html(data, currency)
-    recipient = payload.recipient_email or REPORT_EMAIL
+    recipients = await _resolve_recipients(payload.recipient_email)
     result = await _maybe_send_email(
-        recipient, f"QuickPOS · Clôture {d.isoformat()}", html
+        recipients, f"QuickPOS · Clôture {d.isoformat()}", html
     )
     closure = {
         "id": new_id(),
@@ -1427,6 +1447,7 @@ async def get_settings():
         "resend_configured": bool(RESEND_API_KEY),
         "smtp": smtp_out,
         "currency": currency,
+        "report_recipients": (doc or {}).get("report_recipients") or [],
     }
 
 
@@ -1451,6 +1472,7 @@ class SMTPConfigIn(BaseModel):
 class SettingsUpdate(BaseModel):
     currency: Optional[CurrencyConfig] = None
     smtp: Optional[SMTPConfigIn] = None
+    report_recipients: Optional[List[EmailStr]] = None
 
 
 @api_router.put("/settings")
@@ -1460,11 +1482,20 @@ async def update_settings(payload: SettingsUpdate):
         update["currency"] = payload.currency.model_dump()
     if payload.smtp is not None:
         smtp_data = payload.smtp.model_dump()
-        # preserve existing password if masked
         if smtp_data["password"] == "********":
             existing = await db.settings.find_one({"_id": "config"}, {"_id": 0, "smtp": 1})
             smtp_data["password"] = (existing or {}).get("smtp", {}).get("password", "")
         update["smtp"] = smtp_data
+    if payload.report_recipients is not None:
+        # dedupe while preserving order
+        seen = set()
+        cleaned = []
+        for e in payload.report_recipients:
+            v = str(e).strip().lower()
+            if v and v not in seen:
+                seen.add(v)
+                cleaned.append(v)
+        update["report_recipients"] = cleaned
     if not update:
         raise HTTPException(status_code=400, detail="Aucune modification fournie")
     await db.settings.update_one(
@@ -1491,7 +1522,7 @@ async def smtp_test(payload: SMTPTestRequest):
     </div>
     """
     result = await _send_via_smtp(
-        smtp, payload.to, "QuickPOS · Test SMTP", html
+        smtp, [str(payload.to)], "QuickPOS · Test SMTP", html
     )
     return result
 

@@ -1,0 +1,54 @@
+{
+  "summary": "Tested the new multi-recipient 'report_recipients' feature across Backend + Frontend. New test suite /app/backend/tests/test_report_recipients.py: 10/11 passing. Verified GET /api/settings exposes report_recipients (defaulted []), PUT /api/settings lowercases + dedupes case-insensitively (Patron@Example.com + PATRON@example.com → single 'patron@example.com'), rejects invalid email with HTTP 422. POST /api/reports/daily/send without recipient_email uses the configured list (Resend transport returns status='error' due to domain verification requirement — expected; transport='resend' confirmed). With explicit recipient_email override → only that single address is used. With empty list AND no override → status='skipped' reason='Aucun destinataire fourni'. POST /api/cash-sessions/{id}/close also routes through _resolve_recipients correctly. CRITICAL BUG FOUND: POST /api/reports/monthly/send DOES NOT use report_recipients — still uses 'payload.recipient_email or REPORT_EMAIL' (server.py line 1401), so it returns status='skipped' even when 2 recipients are configured. Frontend e2e (PIN 000000): Parametres → SMTP shows new green 'Destinataires des rapports' section above SMTP form; Enter key adds a chip ('a@example.com'); 'b@example.com,c@example.com' + Ajouter button adds 2 chips via comma parsing; invalid 'notanemail' shows toast 'Adresse invalide : notanemail' and is NOT added; remove-recipient-{email} removes chip; save-recipients triggers toast 'Destinataires enregistrés' and persists across page reload (verified via fresh GET). SMTP password remains '' (empty) when not configured — no regression. SessionPage close-email field shows hint 'Sera envoyé à 2 destinataire(s) configuré(s)' under the input when 2 recipients are configured and override is empty. Tabs Devise/Utilisateurs still work. Login PIN 000000 OK. Cleanup: report_recipients=[] and any open session closed via API at end of run.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/reports/monthly/send",
+        "issue": "Does not honor configured report_recipients list. Hardcoded to `payload.recipient_email or REPORT_EMAIL` (server.py:1401) instead of calling `_resolve_recipients(payload.recipient_email)` like /reports/daily/send and /cash-sessions/{id}/close. Result: monthly auto-send returns status='skipped' reason='Aucun destinataire fourni' even when report_recipients has values. Verified live: PUT {report_recipients:['a@example.com','b@example.com']} then POST /reports/monthly/send {year,month} → {'status':'skipped','reason':'Aucun destinataire fourni'}. Fix: replace lines 1400-1404 with `recipients = await _resolve_recipients(payload.recipient_email); result = await _maybe_send_email(recipients, ...)`",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/reports/daily/send",
+        "issue": "When Resend SDK raises (e.g. domain not verified), the returned email dict is {status:'error', transport:'resend', error:'…'} and does NOT echo back the 'to' list. Acceptable per agent_to_agent_context_note, but it makes it impossible for clients/tests to confirm which recipients were attempted. Consider adding `'to': recipients` to the error branch in _maybe_send_email."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_report_recipients.py",
+    "/app/test_reports/pytest/report_recipients_results.xml"
+  ],
+  "action_items": [
+    "Fix /api/reports/monthly/send to use _resolve_recipients(payload.recipient_email) — currently broken for the multi-recipient flow.",
+    "Optionally enrich the error branch of _maybe_send_email/Resend to also include the attempted 'to' list (for observability and to align with the success branch shape)."
+  ],
+  "critical_code_review_comments": [
+    "server.py grew to 1549 lines — still exceeds 700-line guideline. Same recommendation as iteration_4: split into routes/settings.py + services/email.py.",
+    "Asymmetric implementation of report_recipients: daily/send + close session use _resolve_recipients but monthly/send was missed (line 1401). Suggest a single helper used everywhere to avoid drift.",
+    "SettingsUpdate.report_recipients: List[EmailStr] correctly rejects invalid emails with 422, but the error message ('value is not a valid email address') is not localized. Consider returning a French detail to stay consistent with other endpoints (HTTPException details are in FR).",
+    "PUT /api/settings remains unauthenticated — any client can rewrite the recipient list. Once auth lands, gate this behind admin role (same concern reported in iteration_4 for SMTP and Users).",
+    "Frontend dedupe is purely case-insensitive on the lowercase form (`p = raw.toLowerCase()`). OK for emails but worth a code comment: backend also lowercases, so chips are guaranteed lowercase post-save.",
+    "SessionPage hint uses settings.report_recipients.length but does not refresh when the list is updated in another tab. Minor — only impacts simultaneous browsing."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_report_recipients.py",
+    "/app/test_reports/pytest/report_recipients_results.xml",
+    "/app/test_reports/iteration_5.json"
+  ],
+  "success_rate": {
+    "backend": "10/11 (91%) — 1 confirmed bug on /reports/monthly/send not wired to report_recipients",
+    "frontend": "100% — all chips flows, persistence, invalid-email toast, save toast, SessionPage hint working"
+  },
+  "test_credentials": "PIN admin=000000",
+  "seed_data_creation": "Test recipients (a/b/c/x/y/patron/compta/boss@example.com) added during tests and cleared at end (PUT /api/settings {report_recipients:[]}). One cash session opened during UI test was closed via API at teardown. SMTP doc untouched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New backend tests live in /app/backend/tests/test_report_recipients.py (11 tests; pytest -v). TestMonthlySendRecipients::test_monthly_send_uses_configured_list will FAIL until server.py:1400-1404 is updated to use `_resolve_recipients(payload.recipient_email)` like the daily/close endpoints. Frontend testids: recipient-input, add-recipient-btn, recipients-list, remove-recipient-{email} (email is lowercase post-add), save-recipients. SessionPage hint: appears under [data-testid=close-email] label when settings.report_recipients.length>0 AND email override is empty. To exercise: PUT /api/settings with report_recipients then open a session via /api/cash-sessions/open. Note RESEND_API_KEY is configured but Resend returns 403 'You can only send testing emails to your own email address (yalidou@yahoo.fr). … please verify a domain at resend.com/domains' — this is environmental, not a bug.",
+  "rca of the issue": "RCA for /api/reports/monthly/send not using report_recipients: in /app/backend/server.py around line 1401 the handler still reads `recipient = payload.recipient_email or REPORT_EMAIL` whereas the equivalent daily handler (line 1378) and close handler (line 1014) both go through the shared `_resolve_recipients()` helper that returns settings.report_recipients when the list is non-empty. Reproduction: 1) `PUT /api/settings {report_recipients:['a@example.com','b@example.com']}` 2) `POST /api/reports/monthly/send {year:2026,month:1}` → returns `{'email': {'status':'skipped','reason':'Aucun destinataire fourni'}}`. Expected: email.to == ['a@example.com','b@example.com']. Fix (1 line): change `recipient = payload.recipient_email or REPORT_EMAIL` to `recipient = await _resolve_recipients(payload.recipient_email)` (and the call to `_maybe_send_email(recipient, …)` already accepts a list)."
+}

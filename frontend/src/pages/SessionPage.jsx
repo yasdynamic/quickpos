@@ -28,7 +28,6 @@ export default function SessionPage() {
     setSession(s.data || null);
     setHistory(h.data || []);
     setSettings(settingsRes.data);
-    if (settingsRes.data.report_email) setEmail(settingsRes.data.report_email);
     if (s.data) {
       const x = await api.get("/reports/x");
       setXData(x.data);
@@ -195,16 +194,21 @@ export default function SessionPage() {
                 </label>
                 <label className="block">
                   <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">
-                    Email destinataire
+                    Email destinataire (optionnel, écrase la liste)
                   </span>
                   <input
                     data-testid="close-email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="patron@example.com"
+                    placeholder={(settings?.report_recipients || []).join(", ") || "patron@example.com"}
                     className="mt-1 w-full rounded-md border border-[#E5E7EB] px-4 py-3 outline-none focus:border-[#002FA7]"
                   />
+                  {(settings?.report_recipients || []).length > 0 && !email && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Sera envoyé à {settings.report_recipients.length} destinataire(s) configuré(s)
+                    </p>
+                  )}
                 </label>
               </div>
               <button
