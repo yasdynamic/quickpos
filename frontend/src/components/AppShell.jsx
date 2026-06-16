@@ -15,6 +15,7 @@ import {
   ClipboardList,
   RotateCcw,
   MapPin,
+  ChefHat,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSettings } from "@/context/SettingsContext";
@@ -26,6 +27,7 @@ const NAV = [
   { to: "/tables", label: "Plan de salle", icon: LayoutGrid, testid: "nav-tables", perm: "tables.access" },
   { to: "/session", label: "Sessions", icon: Banknote, testid: "nav-session", perm: "session.open" },
   { to: "/produits", label: "Produits", icon: Package, testid: "nav-products", perm: "products.read" },
+  { to: "/menus", label: "Menus / Formules", icon: ChefHat, testid: "nav-menus", perm: "products.write" },
   { to: "/plan-de-salle", label: "Config. salle", icon: MapPin, testid: "nav-tableplan", perm: "tableplan.write" },
   { to: "/stock", label: "Stock", icon: Boxes, testid: "nav-stock", perm: "stock.read" },
   { to: "/inventaire", label: "Inventaire", icon: ClipboardList, testid: "nav-inventory", perm: "stock.inventory" },

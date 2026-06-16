@@ -301,6 +301,7 @@ class CartLine(BaseModel):
     price: float
     quantity: int
     modifiers: List[ModifierOption] = []
+    menu_id: Optional[str] = None  # populated when the line refers to a combo
 
 
 class SaleCreate(BaseModel):
@@ -1063,6 +1064,21 @@ async def create_sale(payload: SaleCreate):
     )
     sale_doc = sale.model_dump()
     await db.sales.insert_one(sale_doc)
+    # Decrement stock for component products of any menu line in the cart
+    for line in payload.items:
+        menu_id = getattr(line, "menu_id", None)
+        if not menu_id:
+            continue
+        menu = await db.menus.find_one({"id": menu_id}, {"_id": 0})
+        if not menu:
+            continue
+        for comp in menu.get("items", []) or []:
+            prod = await db.products.find_one({"id": comp["product_id"]}, {"_id": 0})
+            if prod and prod.get("track_stock", True):
+                new_stock = max(0, int(prod.get("stock", 0)) - int(comp.get("quantity", 1)) * int(line.quantity))
+                await db.products.update_one(
+                    {"id": comp["product_id"]}, {"$set": {"stock": new_stock}}
+                )
     # NF525 immutable journal + Loyalty
     from nf525_loyalty import append_journal as _aj, apply_loyalty_on_sale as _loy
     await _aj("TICKET", sale.id, {
@@ -1799,6 +1815,101 @@ DEFAULT_ROLE_PERMISSIONS: Dict[str, List[str]] = {
 @api_router.get("/permissions/catalog")
 async def get_permissions_catalog():
     return {"catalog": PERMISSION_CATALOG, "defaults": DEFAULT_ROLE_PERMISSIONS}
+
+
+# --- Menus / Formules (combos) ------------------------------------------
+class MenuItem(BaseModel):
+    product_id: str
+    quantity: int = 1
+
+
+class Menu(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=new_id)
+    name: str
+    price: float
+    category_id: Optional[str] = None
+    image_url: Optional[str] = None
+    items: List[MenuItem] = []
+    tva_rate: float = 20.0
+    active: bool = True
+    created_at: str = Field(default_factory=now_iso)
+
+
+class MenuIn(BaseModel):
+    name: str
+    price: float
+    category_id: Optional[str] = None
+    image_url: Optional[str] = None
+    items: List[MenuItem] = []
+    tva_rate: float = 20.0
+    active: bool = True
+
+
+async def _hydrate_menu(m: dict) -> dict:
+    """Adds 'components' (product names + line subtotal at catalog price) and
+    'catalog_total' for display."""
+    total = 0.0
+    components = []
+    for it in m.get("items", []) or []:
+        p = await db.products.find_one({"id": it["product_id"]}, {"_id": 0})
+        if p:
+            sub = float(p.get("price", 0)) * int(it.get("quantity", 1))
+            total += sub
+            components.append({
+                "product_id": p["id"],
+                "name": p["name"],
+                "unit_price": p.get("price", 0),
+                "quantity": it.get("quantity", 1),
+                "subtotal": sub,
+            })
+    m["components"] = components
+    m["catalog_total"] = round(total, 2)
+    m["savings"] = round(total - float(m.get("price", 0)), 2)
+    return m
+
+
+@api_router.get("/menus")
+async def list_menus(active_only: bool = False):
+    q = {"active": True} if active_only else {}
+    items = await db.menus.find(q, {"_id": 0}).sort("name", 1).to_list(1000)
+    return [await _hydrate_menu(m) for m in items]
+
+
+@api_router.get("/menus/{menu_id}")
+async def get_menu(menu_id: str):
+    m = await db.menus.find_one({"id": menu_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(status_code=404, detail="Menu introuvable")
+    return await _hydrate_menu(m)
+
+
+@api_router.post("/menus")
+async def create_menu(payload: MenuIn):
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Un menu doit contenir au moins un produit")
+    m = Menu(**payload.model_dump())
+    await db.menus.insert_one(m.model_dump())
+    return await _hydrate_menu(m.model_dump())
+
+
+@api_router.put("/menus/{menu_id}")
+async def update_menu(menu_id: str, payload: MenuIn):
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Un menu doit contenir au moins un produit")
+    res = await db.menus.update_one({"id": menu_id}, {"$set": payload.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Menu introuvable")
+    doc = await db.menus.find_one({"id": menu_id}, {"_id": 0})
+    return await _hydrate_menu(doc)
+
+
+@api_router.delete("/menus/{menu_id}")
+async def delete_menu(menu_id: str):
+    res = await db.menus.delete_one({"id": menu_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Menu introuvable")
+    return {"ok": True}
 
 
 class CurrencyConfig(BaseModel):
