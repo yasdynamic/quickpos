@@ -34,7 +34,13 @@ jobs:
         working-directory: backend
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+          # Use legacy resolver to bypass the URL-fragment conflict between
+          # the pinned `litellm @ ...#sha256=...` in requirements.txt and the
+          # `litellm @ ...` (no fragment) declared transitively by
+          # emergentintegrations 0.2.0. Both point to the same wheel.
+          pip install -r requirements.txt \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
+            --use-deprecated=legacy-resolver
           pip install ruff pytest
 
       - name: Lint (ruff)
