@@ -68,7 +68,9 @@ jobs:
         shell: pwsh
         run: |
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\warya-cert.pfx", [Convert]::FromBase64String($env:WIN_CSC_LINK_B64))
+          # electron-builder picks up these env vars natively
           echo "WIN_CSC_LINK=$env:RUNNER_TEMP\warya-cert.pfx" >> $env:GITHUB_ENV
+          echo "WIN_CSC_KEY_PASSWORD=${{ secrets.WIN_CSC_KEY_PASSWORD }}" >> $env:GITHUB_ENV
 
       - name: Build Windows installer
         working-directory: electron
@@ -76,9 +78,6 @@ jobs:
         env:
           WARYA_URL: ${{ github.event.inputs.warya_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signing (set only if certificate provided)
-          CSC_LINK: ${{ env.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: yarn build:win
 
       - name: List build output
