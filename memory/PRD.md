@@ -83,9 +83,11 @@ Admin / Manager / Serveur — permissions personnalisables (matrice par profil)
 - **Wrapper Electron Windows** : dossier `/app/electron/` (Electron 31 + electron-builder 24 + NSIS)
 - Charge l'URL WARYA (configurable via `electron/src/config.js` ou env `WARYA_URL`)
 - Permissions WebUSB autorisées automatiquement (imprimante thermique ESC/POS)
-- Workflow GitHub Actions `electron-windows.yml` : build manuel + sur tag `v*.*.*`
+- Workflow GitHub Actions `electron-windows.yml` : build manuel + sur tag `v*`
 - Signature de code conditionnelle (secrets `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD`)
+- Auto-update via `electron-updater` (check au démarrage + toutes les 6h, dialogue natif)
 - Icône WARYA multi-tailles (16/24/32/48/64/128/256) générée depuis `frontend/public/assets/warya-logo.png`
+- **🎉 Première release publiée** : `v0.1.3-alpha` (commit `966de85`, 16 juin 2026) — NSIS 75 MB + portable 74.8 MB + latest.yml
 
 ## Backlog
 ### P1
