@@ -51,12 +51,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: yarn
-          cache-dependency-path: electron/yarn.lock
 
       - name: Install Electron dependencies
         working-directory: electron
-        run: yarn install --frozen-lockfile
+        run: |
+          if (Test-Path yarn.lock) {
+            yarn install --frozen-lockfile
+          } else {
+            Write-Host "WARNING: yarn.lock missing — running fresh install"
+            yarn install
+          }
+        shell: pwsh
 
       - name: Decode signing certificate (if provided)
         if: ${{ env.WIN_CSC_LINK_B64 != '' }}
