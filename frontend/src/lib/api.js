@@ -58,13 +58,36 @@ export const formatDateTime = (iso) => {
 export const todayISO = () => new Date().toISOString().slice(0, 10);
 
 export const PRESETS = [
-  { code: "EUR", symbol: "€", decimals: 2, position: "after", label: "Euro" },
-  { code: "XOF", symbol: "FCFA", decimals: 0, position: "after", label: "FCFA (Afrique de l'Ouest)" },
-  { code: "XAF", symbol: "FCFA", decimals: 0, position: "after", label: "FCFA (Afrique Centrale)" },
-  { code: "USD", symbol: "$", decimals: 2, position: "before", label: "Dollar US" },
-  { code: "GBP", symbol: "£", decimals: 2, position: "before", label: "Livre Sterling" },
-  { code: "CHF", symbol: "CHF", decimals: 2, position: "after", label: "Franc Suisse" },
-  { code: "MAD", symbol: "DH", decimals: 2, position: "after", label: "Dirham Marocain" },
-  { code: "TND", symbol: "DT", decimals: 3, position: "after", label: "Dinar Tunisien" },
-  { code: "CAD", symbol: "$", decimals: 2, position: "before", label: "Dollar Canadien" },
+  { code: "EUR", symbol: "€", decimals: 2, position: "after", label: "Euro",
+    quickAmounts: [5, 10, 20, 50, 100] },
+  { code: "XOF", symbol: "FCFA", decimals: 0, position: "after", label: "FCFA (Afrique de l'Ouest)",
+    quickAmounts: [500, 1000, 2000, 5000, 10000] },
+  { code: "XAF", symbol: "FCFA", decimals: 0, position: "after", label: "FCFA (Afrique Centrale)",
+    quickAmounts: [500, 1000, 2000, 5000, 10000] },
+  { code: "USD", symbol: "$", decimals: 2, position: "before", label: "Dollar US",
+    quickAmounts: [5, 10, 20, 50, 100] },
+  { code: "GBP", symbol: "£", decimals: 2, position: "before", label: "Livre Sterling",
+    quickAmounts: [5, 10, 20, 50, 100] },
+  { code: "CHF", symbol: "CHF", decimals: 2, position: "after", label: "Franc Suisse",
+    quickAmounts: [5, 10, 20, 50, 100] },
+  { code: "MAD", symbol: "DH", decimals: 2, position: "after", label: "Dirham Marocain",
+    quickAmounts: [20, 50, 100, 200, 500] },
+  { code: "TND", symbol: "DT", decimals: 3, position: "after", label: "Dinar Tunisien",
+    quickAmounts: [5, 10, 20, 50, 100] },
+  { code: "CAD", symbol: "$", decimals: 2, position: "before", label: "Dollar Canadien",
+    quickAmounts: [5, 10, 20, 50, 100] },
 ];
+
+// Default quick amounts when the active preset does not define them
+const DEFAULT_QUICK_AMOUNTS = [5, 10, 20, 50, 100];
+
+export const getQuickAmounts = () => {
+  const match = PRESETS.find((p) => p.code === CURRENCY.code);
+  return match?.quickAmounts || DEFAULT_QUICK_AMOUNTS;
+};
+
+// Format a numeric value using the active currency's decimals (no symbol)
+export const formatAmountInput = (value) => {
+  const d = CURRENCY.decimals || 0;
+  return Number(value || 0).toFixed(d);
+};

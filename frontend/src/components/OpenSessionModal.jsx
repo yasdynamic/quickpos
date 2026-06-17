@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
 import { X, Banknote } from "lucide-react";
 import { toast } from "sonner";
-import { api, formatCurrency } from "@/lib/api";
+import { api, formatCurrency, getQuickAmounts, formatAmountInput } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-
-const QUICK = [50, 100, 200, 300, 500];
 
 export default function OpenSessionModal({ open, onClose, onOpened }) {
   const { user } = useAuth();
-  const [opening, setOpening] = useState("100.00");
+  const quickAmounts = getQuickAmounts();
+  const defaultOpening = formatAmountInput(quickAmounts[1] || 100);
+  const [opening, setOpening] = useState(defaultOpening);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (open) setOpening("100.00");
+    if (open) setOpening(defaultOpening);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (!open) return null;
@@ -72,13 +73,13 @@ export default function OpenSessionModal({ open, onClose, onOpened }) {
               className="w-full rounded-md border border-[#E5E7EB] px-4 py-4 text-3xl font-bold font-mono outline-none focus:border-[#002FA7]"
             />
             <div className="mt-3 flex flex-wrap gap-2">
-              {QUICK.map((a) => (
+              {quickAmounts.map((a) => (
                 <button
                   key={a}
-                  onClick={() => setOpening(a.toFixed(2))}
+                  onClick={() => setOpening(formatAmountInput(a))}
                   className="rounded-md border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold hover:bg-[#FAFAFA] active:scale-95"
                 >
-                  {a} €
+                  {formatCurrency(a)}
                 </button>
               ))}
             </div>

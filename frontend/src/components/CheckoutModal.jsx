@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Banknote, CreditCard, Smartphone, X } from "lucide-react";
-import { formatCurrency } from "@/lib/api";
+import { formatCurrency, getQuickAmounts, formatAmountInput } from "@/lib/api";
 
 const METHODS = [
   { value: "cash", label: "Espèces", icon: Banknote },
@@ -8,16 +8,15 @@ const METHODS = [
   { value: "mobile", label: "Mobile Money", icon: Smartphone },
 ];
 
-const QUICK_AMOUNTS = [5, 10, 20, 50, 100];
-
 export default function CheckoutModal({ open, onClose, total, onConfirm }) {
   const [method, setMethod] = useState("cash");
   const [received, setReceived] = useState("");
+  const quickAmounts = getQuickAmounts();
 
   useEffect(() => {
     if (open) {
       setMethod("cash");
-      setReceived(total.toFixed(2));
+      setReceived(formatAmountInput(total));
     }
   }, [open, total]);
 
@@ -92,19 +91,19 @@ export default function CheckoutModal({ open, onClose, total, onConfirm }) {
                 className="w-full rounded-md border border-[#E5E7EB] bg-white px-4 py-4 text-3xl font-bold font-mono text-[#0A0A0A] outline-none focus:border-[#002FA7] focus:ring-2 focus:ring-[#002FA7]/20"
               />
               <div className="mt-3 flex flex-wrap gap-2">
-                {QUICK_AMOUNTS.map((a) => (
+                {quickAmounts.map((a) => (
                   <button
                     key={a}
                     data-testid={`quick-${a}`}
-                    onClick={() => setReceived(a.toFixed(2))}
+                    onClick={() => setReceived(formatAmountInput(a))}
                     className="rounded-md border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold hover:bg-[#FAFAFA] active:scale-95"
                   >
-                    {a} €
+                    {formatCurrency(a)}
                   </button>
                 ))}
                 <button
                   data-testid="quick-exact"
-                  onClick={() => setReceived(total.toFixed(2))}
+                  onClick={() => setReceived(formatAmountInput(total))}
                   className="rounded-md border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold hover:bg-[#FAFAFA] active:scale-95"
                 >
                   Compte juste

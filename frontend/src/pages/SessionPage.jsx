@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, Mail, AlertTriangle, CheckCircle2, Banknote, FileText, Printer } from "lucide-react";
 import { toast } from "sonner";
-import { api, formatCurrency, formatDateTime } from "@/lib/api";
+import { api, formatCurrency, formatDateTime, formatAmountInput } from "@/lib/api";
 import { useSettings } from "@/context/SettingsContext";
 import { usePrinter } from "@/context/PrinterContext";
 import OpenSessionModal from "@/components/OpenSessionModal";
@@ -247,7 +247,7 @@ export default function SessionPage() {
                     inputMode="decimal"
                     value={closing}
                     onChange={(e) => setClosing(e.target.value)}
-                    placeholder={xData ? xData.expected_cash.toFixed(2) : "0.00"}
+                    placeholder={xData ? formatAmountInput(xData.expected_cash) : formatAmountInput(0)}
                     className="mt-1 w-full rounded-md border border-[#E5E7EB] px-4 py-3 text-2xl font-bold font-mono outline-none focus:border-[#002FA7]"
                   />
                 </label>
