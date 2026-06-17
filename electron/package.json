@@ -1,6 +1,6 @@
 {
   "name": "warya-desktop",
-  "version": "0.1.0-alpha",
+  "version": "0.1.2-alpha",
   "description": "WARYA — Caisse tactile (wrapper Electron Windows)",
   "author": {
     "name": "Yas Dynamic",
